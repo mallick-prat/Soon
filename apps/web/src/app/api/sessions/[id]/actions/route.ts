@@ -1,9 +1,26 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getDb, revokeBundle, snoozeSession, transitionSessionState } from "@soon/database";
+import {
+  approveDraft,
+  enqueueOutboxCommand,
+  getDb,
+  revokeBundle,
+  snoozeSession,
+  transitionSessionState,
+} from "@soon/database";
+import { adjustForSendWindow, computeFollowUpSchedule } from "@soon/follow-up-engine";
 import { parseBody, requireDatabase, serverError } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
+
+/** parse a FollowUpPolicy.quietHoursJson value defensively, with prd defaults. */
+function readQuietHours(value: unknown): { earliest: string; latest: string } {
+  const v = (value ?? {}) as Record<string, unknown>;
+  return {
+    earliest: typeof v.earliest === "string" ? v.earliest : "09:00",
+    latest: typeof v.latest === "string" ? v.latest : "19:00",
+  };
+}
 
 const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("pause") }),
@@ -88,23 +105,52 @@ export async function POST(
         return NextResponse.json({ session: updated });
       }
       case "send_now": {
-        // TODO(integration): @soon/approval-engine approves + enqueues the
-        // outbox command; for now just fast-forward the next action time.
-        const updated = await db.schedulingSession.update({
-          where: { id },
-          data: { nextActionAt: new Date() },
+        // explicit user approval: approve the pending draft and hand it to the
+        // mac via the outbox — the same path as a dashboard draft approval.
+        const draft = data.draftId
+          ? await db.outboundDraft.findUnique({ where: { id: data.draftId } })
+          : await db.outboundDraft.findFirst({
+              where: { sessionId: id, status: "pending" },
+              orderBy: { createdAt: "desc" },
+            });
+        if (!draft || draft.sessionId !== id) {
+          return NextResponse.json({ error: "no draft to send" }, { status: 409 });
+        }
+        await approveDraft(draft.id, { approvalSource: "dashboard" });
+        await enqueueOutboxCommand({
+          userId: session.userId,
+          sessionId: id,
+          commandType: "send_message",
+          payloadJson: { draftId: draft.id, text: draft.text },
+          idempotencyKey: `send-draft:${draft.id}`,
+          expiresAt: draft.expiresAt,
         });
-        return NextResponse.json({ session: updated });
+        const updated = await transitionSessionState(id, "sending_approved_message", {
+          actor: "user",
+          reason: "sent from dashboard",
+        });
+        return NextResponse.json({ session: updated, draftId: draft.id });
       }
       case "edit_next_follow_up": {
-        // TODO(integration): @soon/follow-up-engine should recompute the
-        // attempt schedule; the control plane just persists intent.
+        // honor the user's chosen time, but snap it into the contact's allowed
+        // send window (quiet hours / weekend rules) via @soon/follow-up-engine.
+        const requested = new Date(data.nextAtIso);
+        const policy = session.followUpPolicyId
+          ? await db.followUpPolicy.findUnique({
+              where: { id: session.followUpPolicyId },
+            })
+          : null;
+        const nextActionAt = policy
+          ? adjustForSendWindow(
+              requested,
+              readQuietHours(policy.quietHoursJson),
+              policy.weekendsEnabled,
+              session.timezone,
+            )
+          : requested;
         const updated = await db.schedulingSession.update({
           where: { id },
-          data: {
-            nextActionAt: new Date(data.nextAtIso),
-            nextActionType: "send_follow_up",
-          },
+          data: { nextActionAt, nextActionType: "send_follow_up" },
         });
         return NextResponse.json({ session: updated });
       }
@@ -115,12 +161,35 @@ export async function POST(
             { status: 409 },
           );
         }
-        // TODO(integration): @soon/follow-up-engine reschedules pending attempts.
         const policy = await db.followUpPolicy.update({
           where: { id: session.followUpPolicyId },
           data: { intervalHours: data.intervalHours },
         });
-        return NextResponse.json({ policy });
+        // recompute the next follow-up from the new cadence (anchored at now,
+        // i.e. the change applies going forward) and snap it into the send
+        // window. only touches sessions actively waiting on a follow-up.
+        let updatedSession = session;
+        if (session.nextActionAt) {
+          const [firstAttempt] = computeFollowUpSchedule(
+            { intervalHours: data.intervalHours, maximumAttempts: policy.maximumAttempts },
+            new Date(),
+          );
+          if (firstAttempt) {
+            updatedSession = await db.schedulingSession.update({
+              where: { id },
+              data: {
+                nextActionAt: adjustForSendWindow(
+                  firstAttempt.scheduledFor,
+                  readQuietHours(policy.quietHoursJson),
+                  policy.weekendsEnabled,
+                  session.timezone,
+                ),
+                nextActionType: "send_follow_up",
+              },
+            });
+          }
+        }
+        return NextResponse.json({ policy, session: updatedSession });
       }
     }
   } catch {

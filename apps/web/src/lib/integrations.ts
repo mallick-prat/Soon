@@ -1,64 +1,90 @@
 /**
- * narrow local interfaces for the packages being built concurrently
- * (@soon/calendar, @soon/approval-engine, @soon/follow-up-engine,
- * @soon/security, @soon/observability, @soon/message-copy).
+ * integration seam between the web control plane and the workspace engines.
  *
- * TODO(integration): replace each stub with the real workspace package once
- * it lands. keep the interfaces narrow so swapping is mechanical.
+ * these were placeholder stubs while the packages were built concurrently;
+ * they are now wired to the real implementations. keep this module thin — it
+ * only adapts the packages to the shapes the api routes expect.
  */
+import {
+  deriveKeyFromMasterKey,
+  encryptSecret,
+  decryptSecret,
+  type KeyRing,
+} from "@soon/security";
+import { createLogger } from "@soon/observability";
 
-// TODO(integration): @soon/security — real aes-gcm envelope encryption.
+// --------------------------------------------------------------------------
+// token encryption — @soon/security aes-256-gcm envelope encryption.
+// protects google access/refresh tokens at rest (prisma
+// GoogleConnection.encrypted*Token). the master key comes from
+// TOKEN_ENCRYPTION_KEY (base64); the version from DATA_ENCRYPTION_KEY_VERSION.
+// --------------------------------------------------------------------------
 export interface TokenCipher {
   encrypt(plaintext: string): string;
   decrypt(ciphertext: string): string;
 }
 
-/** placeholder cipher: tags values so unencrypted tokens are detectable */
+interface TokenKeyMaterial {
+  version: number;
+  key: Buffer;
+  ring: KeyRing;
+}
+
+let cachedKeyMaterial: TokenKeyMaterial | null = null;
+
+/**
+ * load and cache the token key material. throws a clear error — never
+ * exposing the key — if the environment is missing or malformed. called
+ * lazily so importing this module never requires a key (local/demo mode).
+ */
+function tokenKeyMaterial(): TokenKeyMaterial {
+  if (cachedKeyMaterial) return cachedKeyMaterial;
+  const master = process.env.TOKEN_ENCRYPTION_KEY;
+  if (!master) {
+    throw new Error(
+      "TOKEN_ENCRYPTION_KEY is not set; refusing to store google tokens without encryption",
+    );
+  }
+  const version = Number(process.env.DATA_ENCRYPTION_KEY_VERSION ?? "1");
+  if (!Number.isInteger(version) || version < 0) {
+    throw new Error("DATA_ENCRYPTION_KEY_VERSION must be a non-negative integer");
+  }
+  const key = deriveKeyFromMasterKey(master);
+  cachedKeyMaterial = { version, key, ring: { [version]: key } };
+  return cachedKeyMaterial;
+}
+
 export const tokenCipher: TokenCipher = {
-  encrypt: (plaintext) => `plaintext-stub:${plaintext}`,
-  decrypt: (ciphertext) =>
-    ciphertext.startsWith("plaintext-stub:")
-      ? ciphertext.slice("plaintext-stub:".length)
-      : ciphertext,
+  encrypt: (plaintext) => {
+    const { key, version } = tokenKeyMaterial();
+    return encryptSecret(plaintext, key, version);
+  },
+  decrypt: (ciphertext) => {
+    const { ring } = tokenKeyMaterial();
+    return decryptSecret(ciphertext, ring);
+  },
 };
 
-// TODO(integration): @soon/calendar — event creation / reschedule / cancel.
-export interface CalendarService {
-  createEvent(input: {
-    sessionId: string;
-    startsAtIso: string;
-    endsAtIso: string;
-    title: string;
-    attendeeEmail?: string;
-  }): Promise<{ eventId: string }>;
-  cancelEvent(eventId: string): Promise<void>;
+/** test seam: clears the memoized key material so env changes take effect. */
+export function resetTokenCipherForTests(): void {
+  cachedKeyMaterial = null;
 }
 
-// TODO(integration): @soon/approval-engine — decides whether a draft can
-// auto-send under the active bundle.
-export interface ApprovalDecider {
-  canAutoSend(draftId: string): Promise<boolean>;
-}
-
-// TODO(integration): @soon/follow-up-engine — recomputes attempt schedules
-// when the user edits cadence or snoozes a session.
-export interface FollowUpScheduler {
-  reschedule(sessionId: string, nextAtIso: string): Promise<void>;
-  changeCadence(sessionId: string, intervalHours: number[]): Promise<void>;
-}
-
-// TODO(integration): @soon/message-copy — canonical user-facing strings.
-// until then, dashboard copy lives in src/lib/copy.ts.
-
-// TODO(integration): @soon/observability — structured logging + tracing.
+// --------------------------------------------------------------------------
+// structured logging — @soon/observability pino logger with mandatory
+// redaction of tokens, message bodies, emails, and phone numbers. adapted to
+// the (message, fields) shape the api routes already call.
+// --------------------------------------------------------------------------
 export interface Logger {
   info(message: string, fields?: Record<string, unknown>): void;
   warn(message: string, fields?: Record<string, unknown>): void;
   error(message: string, fields?: Record<string, unknown>): void;
 }
 
+const pinoLogger = createLogger({ name: "web" });
+
 export const logger: Logger = {
-  info: (message, fields) => console.info(`[web] ${message}`, fields ?? {}),
-  warn: (message, fields) => console.warn(`[web] ${message}`, fields ?? {}),
-  error: (message, fields) => console.error(`[web] ${message}`, fields ?? {}),
+  info: (message, fields) => pinoLogger.info(fields ?? {}, message),
+  warn: (message, fields) => pinoLogger.warn(fields ?? {}, message),
+  error: (message, fields) => pinoLogger.error(fields ?? {}, message),
 };
