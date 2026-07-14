@@ -9,7 +9,7 @@ import { app, powerMonitor, shell } from "electron";
 import pino from "pino";
 import { serializeError } from "serialize-error";
 
-import type { ShowNotificationPayload } from "@soon/realtime-protocol";
+import type { RequestApprovalPayload, ShowNotificationPayload } from "@soon/realtime-protocol";
 
 import { openApprovalWindow } from "../approvals/window.js";
 import type { ApprovalRequest } from "../approvals/types.js";
@@ -64,8 +64,10 @@ const main = async (): Promise<void> => {
   let pendingDraft: ApprovalRequest | undefined;
   let realtime: RealtimeClient;
 
+  // general private notifications ("soon is on it", "scheduled with alex",
+  // failures). the "review" action opens whatever draft is currently pending.
   const notifyFromCloud = (payload: ShowNotificationPayload): void => {
-    const wantsReview = payload.actions.includes("review") && payload.draftId !== undefined;
+    const wantsReview = payload.actions.includes("review") && pendingDraft !== undefined;
     showPrivateNotification({
       title: payload.title,
       ...(payload.subtext !== undefined ? { body: payload.subtext } : {}),
@@ -74,22 +76,41 @@ const main = async (): Promise<void> => {
         if (action === "review") reviewDraft();
       },
     });
-    if (payload.draftId !== undefined) {
-      // stub payload until the cloud pushes full draft bodies (phase: draft
-      // detail command not yet in the protocol — see final report).
-      pendingDraft = {
-        draftId: payload.draftId,
-        conversationRef: "",
-        proposedText: payload.subtext ?? payload.title,
-        meetingContext: payload.title,
-        candidateTimes: [],
-        whySelected: "",
-        bundleStatus: { mode: "approve_every" },
-        expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
-      };
-      tray?.setDraftCount(1);
-      tray?.setState("draft_waiting");
-    }
+  };
+
+  // a draft arrived for local approval (request_approval command). store the
+  // full draft and surface it privately — the window shows real content now.
+  const receiveDraftForApproval = (payload: RequestApprovalPayload): void => {
+    pendingDraft = {
+      draftId: payload.draftId,
+      conversationRef: payload.conversationReference,
+      proposedText: payload.proposedText,
+      meetingContext: payload.meetingContext,
+      candidateTimes: payload.candidateTimes,
+      whySelected: payload.whySelected,
+      bundleStatus: payload.bundleStatus,
+      expiresAt: payload.expiresAt,
+    };
+    tray?.setDraftCount(1);
+    tray?.setState("draft_waiting");
+    showPrivateNotification({
+      title: "soon is handling this",
+      ...(payload.meetingContext !== "" ? { body: payload.meetingContext } : {}),
+      actions: ["review", "stop"],
+      onAction: (action) => {
+        if (action === "review") {
+          reviewDraft();
+          return;
+        }
+        // dismissed from the notification — report the decline upstream.
+        pendingDraft = undefined;
+        tray?.setDraftCount(0);
+        tray?.setState(realtime.getStatus() === "connected" ? "on" : "disconnected");
+        void realtime.emitEvent(
+          eventFactory.build("approval_decision", { draftId: payload.draftId, decision: "stop" }),
+        );
+      },
+    });
   };
 
   const reviewDraft = (): void => {
@@ -120,6 +141,7 @@ const main = async (): Promise<void> => {
     events: eventFactory,
     emitEvent: (event) => realtime.emitEvent(event),
     notify: notifyFromCloud,
+    requestApproval: receiveDraftForApproval,
     collectContext: (payload) =>
       collectActivationContext(provider, {
         conversationRef: payload.conversationReference,

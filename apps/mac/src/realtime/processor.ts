@@ -14,6 +14,7 @@ import {
   type ShowNotificationPayload,
   type CollectContextPayload,
   type SendMessagePayload,
+  type RequestApprovalPayload,
 } from "@soon/realtime-protocol";
 import type { ActivationContext } from "@soon/shared-types";
 
@@ -33,6 +34,12 @@ export interface CommandProcessorDeps {
   collectContext: (payload: CollectContextPayload) => Promise<ActivationContext>;
   /** show a private local notification. NEVER sends into the conversation. */
   notify?: (payload: ShowNotificationPayload) => void;
+  /**
+   * show the private approval window for a proposed draft. fire-and-forget:
+   * the user's choice returns later as an `approval_decision` device event,
+   * so the command is acked as soon as the window is presented.
+   */
+  requestApproval?: (payload: RequestApprovalPayload) => void;
   now?: () => number;
 }
 
@@ -88,6 +95,10 @@ export class CommandProcessor {
     switch (command.type) {
       case "send_message":
         return this.handleSendMessage(command, command.payload);
+      case "request_approval":
+        // present the draft locally; the decision returns as its own event.
+        this.deps.requestApproval?.(command.payload);
+        return ack(true, command.commandId);
       case "collect_context":
         return this.handleCollectContext(command, command.payload);
       case "show_notification":

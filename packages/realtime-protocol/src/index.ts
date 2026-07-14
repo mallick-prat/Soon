@@ -5,6 +5,7 @@ export const PROTOCOL_VERSION = 1;
 /** commands the cloud sends to the mac companion */
 export const commandTypeSchema = z.enum([
   "send_message",
+  "request_approval",
   "collect_context",
   "show_notification",
   "cancel_command",
@@ -47,6 +48,45 @@ export const sendMessagePayloadSchema = z.object({
 });
 export type SendMessagePayload = z.infer<typeof sendMessagePayloadSchema>;
 
+/** a candidate meeting time, pre-formatted for display in the approval window */
+export const candidateTimeSchema = z.object({
+  slotId: z.string(),
+  label: z.string(),
+});
+export type CandidateTime = z.infer<typeof candidateTimeSchema>;
+
+/** the approval mode in effect for a draft, shown in the approval window */
+export const bundleStatusSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("approve_every") }),
+  z.object({
+    mode: z.literal("bundle"),
+    messagesUsed: z.number().int().nonnegative(),
+    maximumOutboundMessages: z.number().int().positive(),
+    expiresAt: z.string(),
+  }),
+  z.object({ mode: z.literal("calendar_only") }),
+]);
+export type BundleStatus = z.infer<typeof bundleStatusSchema>;
+
+/**
+ * ask the mac to show its private approval window for a proposed message.
+ * carries the full draft so the window renders real content (never a stub).
+ * the user's choice comes back as an `approval_decision` device event — the
+ * cloud, not the mac, then issues the actual `send_message` command.
+ */
+export const requestApprovalPayloadSchema = z.object({
+  draftId: z.string(),
+  conversationReference: z.string(),
+  proposedText: z.string().min(1).max(2000),
+  meetingContext: z.string().default(""),
+  candidateTimes: z.array(candidateTimeSchema).max(5).default([]),
+  whySelected: z.string().default(""),
+  bundleStatus: bundleStatusSchema,
+  /** ISO instant after which this draft must not be sent */
+  expiresAt: z.string(),
+});
+export type RequestApprovalPayload = z.infer<typeof requestApprovalPayloadSchema>;
+
 export const collectContextPayloadSchema = z.object({
   conversationReference: z.string(),
   maxMessages: z.number().int().positive().max(20),
@@ -68,6 +108,7 @@ export const cancelCommandPayloadSchema = z.object({
 
 export const cloudCommandSchema = z.discriminatedUnion("type", [
   z.object({ ...envelopeBase, type: z.literal("send_message"), payload: sendMessagePayloadSchema }),
+  z.object({ ...envelopeBase, type: z.literal("request_approval"), payload: requestApprovalPayloadSchema }),
   z.object({ ...envelopeBase, type: z.literal("collect_context"), payload: collectContextPayloadSchema }),
   z.object({ ...envelopeBase, type: z.literal("show_notification"), payload: showNotificationPayloadSchema }),
   z.object({ ...envelopeBase, type: z.literal("cancel_command"), payload: cancelCommandPayloadSchema }),
