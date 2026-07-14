@@ -3,25 +3,52 @@
  * rows; this adapter maps them to the @soon/shared-types domain shapes the
  * scheduling engine expects (Date → ISO string, null → undefined) and back.
  *
- * loadFollowUpState is intentionally not implemented here — the follow-up
- * composition (assembling a PreSendSnapshot) is a separate slice, and
- * composition.ts already throws a clear error when it is missing.
+ * it also implements loadFollowUpState — the extension the follow-up runner
+ * resolves through composition.ts — assembling the domain policy, attempts, and
+ * a pre-send snapshot from persisted state.
  */
 import type {
   ApprovalBundle as DomainBundle,
   CandidateSlot as DomainSlot,
+  FollowUpAttempt as DomainAttempt,
+  FollowUpPolicy as DomainPolicy,
   SchedulingSession as DomainSession,
 } from "@soon/shared-types";
+import type { PreSendSnapshot } from "@soon/follow-up-engine";
 import {
   getDb,
   transitionSessionState,
   type ApprovalBundle as DbBundle,
   type CandidateSlot as DbSlot,
+  type FollowUpAttempt as DbAttempt,
+  type FollowUpPolicy as DbPolicy,
   type Prisma,
   type SchedulingSession as DbSession,
 } from "@soon/database";
 
 import type { SessionStore } from "../ports.js";
+
+/** the follow-up runner resolves this extension through composition.ts. */
+export interface FollowUpStateLoader {
+  loadFollowUpState(sessionId: string): Promise<{
+    policy: DomainPolicy;
+    attempts: DomainAttempt[];
+    snapshot: Omit<PreSendSnapshot, "now">;
+    styleExamples: string[];
+  }>;
+}
+
+/** session states in which a follow-up must NOT fire. */
+const FOLLOW_UP_INACTIVE_STATES = new Set([
+  "paused",
+  "taken_over",
+  "cancelling",
+  "scheduled",
+  "expired",
+  "failed",
+]);
+
+const DEFAULT_MINIMUM_NOTICE_MINUTES = 120;
 
 // ---------------------------------------------------------------- mappers
 
@@ -86,9 +113,103 @@ export function toDomainBundle(r: DbBundle): DomainBundle {
   };
 }
 
+/** parse a FollowUpPolicy.quietHoursJson value defensively, with prd defaults. */
+function readQuietHours(value: unknown): { earliest: string; latest: string } {
+  const v = (value ?? {}) as Record<string, unknown>;
+  return {
+    earliest: typeof v.earliest === "string" ? v.earliest : "09:00",
+    latest: typeof v.latest === "string" ? v.latest : "19:00",
+  };
+}
+
+/** intervalHours is stored as json; coerce to a positive-number array with a default. */
+function readIntervalHours(value: unknown): number[] {
+  if (Array.isArray(value)) {
+    const hours = value.filter((h): h is number => typeof h === "number" && h > 0);
+    if (hours.length > 0) return hours;
+  }
+  return [48, 120, 240];
+}
+
+export function toDomainFollowUpPolicy(
+  r: DbPolicy,
+  sessionId: string,
+  timezone: string,
+): DomainPolicy {
+  return {
+    id: r.id,
+    sessionId: r.sessionId ?? sessionId,
+    enabled: r.enabled,
+    mode: r.mode,
+    intervalHours: readIntervalHours(r.intervalHours),
+    maximumAttempts: r.maximumAttempts,
+    sessionMaxDays: r.sessionMaxDays,
+    quietHours: { ...readQuietHours(r.quietHoursJson), timezone },
+    weekendsEnabled: r.weekendsEnabled,
+    requiresApproval: r.requiresApproval,
+    ...(r.approvalBundleId !== null ? { approvalBundleId: r.approvalBundleId } : {}),
+  };
+}
+
+export function toDomainFollowUpAttempt(r: DbAttempt): DomainAttempt {
+  return {
+    id: r.id,
+    sessionId: r.sessionId,
+    policyId: r.policyId,
+    attemptNumber: r.attemptNumber,
+    scheduledFor: r.scheduledFor.toISOString(),
+    ...(r.sendWindowStart !== null ? { sendWindowStart: r.sendWindowStart.toISOString() } : {}),
+    ...(r.sendWindowEnd !== null ? { sendWindowEnd: r.sendWindowEnd.toISOString() } : {}),
+    status: r.status,
+    ...(r.draftId !== null ? { draftId: r.draftId } : {}),
+    idempotencyKey: r.idempotencyKey,
+  };
+}
+
+export interface PreSendSnapshotInputs {
+  sessionState: string;
+  timezone: string;
+  lastOutboundAt: Date | null;
+  updatedAt: Date;
+  lastInboundAt: Date | null;
+  policy: DomainPolicy;
+  bundle: DomainBundle | undefined;
+  referencedSlotStarts: readonly Date[];
+  minimumNoticeMinutes: number;
+}
+
+/**
+ * assemble the pre-send checklist snapshot from persisted state. signals soon
+ * does not yet track (a manual user reply, an explicit decline / opt-out, the
+ * conversation moving on) default to non-blocking — the checks that CAN be
+ * derived (session active, new inbound, bundle validity, quiet hours, stale
+ * candidates) are all enforced.
+ */
+export function buildPreSendSnapshot(input: PreSendSnapshotInputs): Omit<PreSendSnapshot, "now"> {
+  return {
+    sessionActive: !FOLLOW_UP_INACTIVE_STATES.has(input.sessionState),
+    lastActionAt: input.lastOutboundAt ?? input.updatedAt,
+    ...(input.lastInboundAt !== null ? { lastInboundAt: input.lastInboundAt } : {}),
+    // a follow-up auto-send (approval not required) must be covered by a bundle.
+    requiresBundle: !input.policy.requiresApproval,
+    ...(input.bundle !== undefined ? { bundle: input.bundle } : {}),
+    quietHours: {
+      earliest: input.policy.quietHours.earliest,
+      latest: input.policy.quietHours.latest,
+    },
+    weekendsEnabled: input.policy.weekendsEnabled,
+    timezone: input.timezone,
+    attendeeDeclined: false,
+    attendeeOptedOut: false,
+    referencedSlotStarts: input.referencedSlotStarts,
+    minimumNoticeMinutes: input.minimumNoticeMinutes,
+    conversationMovedOn: false,
+  };
+}
+
 // ---------------------------------------------------------------- adapter
 
-export function createPrismaSessionStore(): SessionStore {
+export function createPrismaSessionStore(): SessionStore & FollowUpStateLoader {
   return {
     async get(sessionId) {
       const row = await getDb().schedulingSession.findUniqueOrThrow({ where: { id: sessionId } });
@@ -201,6 +322,50 @@ export function createPrismaSessionStore(): SessionStore {
           ...(metadata !== undefined ? { detailJson: metadata as Prisma.InputJsonValue } : {}),
         },
       });
+    },
+
+    async loadFollowUpState(sessionId) {
+      const db = getDb();
+      const session = await db.schedulingSession.findUniqueOrThrow({ where: { id: sessionId } });
+      if (session.followUpPolicyId === null) {
+        throw new Error(`session ${sessionId} has no follow-up policy`);
+      }
+      const [policyRow, attemptRows, slots, bundleRow, calendarPref] = await Promise.all([
+        db.followUpPolicy.findUniqueOrThrow({ where: { id: session.followUpPolicyId } }),
+        db.followUpAttempt.findMany({ where: { sessionId }, orderBy: { attemptNumber: "asc" } }),
+        db.candidateSlot.findMany({
+          where: { sessionId, status: { in: ["candidate", "proposed"] } },
+        }),
+        db.approvalBundle.findFirst({
+          where: { sessionId, status: "active" },
+          orderBy: { createdAt: "desc" },
+        }),
+        db.calendarPreference.findUnique({ where: { userId: session.userId } }),
+      ]);
+
+      const policy = toDomainFollowUpPolicy(policyRow, sessionId, session.timezone);
+      const bundle = bundleRow !== null ? toDomainBundle(bundleRow) : undefined;
+      const snapshot = buildPreSendSnapshot({
+        sessionState: session.state,
+        timezone: session.timezone,
+        lastOutboundAt: session.lastOutboundAt,
+        updatedAt: session.updatedAt,
+        lastInboundAt: session.lastInboundAt,
+        policy,
+        bundle,
+        referencedSlotStarts: slots.map((s) => s.startsAt),
+        minimumNoticeMinutes:
+          calendarPref?.minimumNoticeMinutes ?? DEFAULT_MINIMUM_NOTICE_MINUTES,
+      });
+
+      return {
+        policy,
+        attempts: attemptRows.map(toDomainFollowUpAttempt),
+        snapshot,
+        // style retrieval for follow-ups is a later refinement; the drafter
+        // falls back to concise defaults with no examples.
+        styleExamples: [],
+      };
     },
   };
 }
