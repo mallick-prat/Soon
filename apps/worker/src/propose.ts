@@ -3,6 +3,7 @@ import type { CandidateSlot, OutboundDraft, SchedulingSession } from "@soon/shar
 import { generateCandidateSlots, type SlotGenerationInput } from "@soon/scheduling-engine";
 import { evaluateDraftAgainstBundle } from "@soon/approval-engine";
 import type { AvailabilityService, Clock, CommandDispatcher, Interpreter, SessionStore } from "./ports.js";
+import { bundleStatusFor, candidateTimesFrom, meetingContextFor } from "./approval-request.js";
 
 export type ProposeDeps = {
   store: SessionStore;
@@ -115,9 +116,19 @@ export async function runProposalRound(
   }
 
   await deps.store.transition(session.id, "awaiting_user_approval");
-  await deps.dispatcher.notify(session.userId, "soon is handling this", "draft ready to review", [
-    "review",
-    "stop",
-  ]);
+  await deps.dispatcher.enqueueApprovalRequest({
+    userId: session.userId,
+    sessionId: session.id,
+    conversationReference,
+    draftId: draft.id,
+    text: draft.text,
+    meetingContext: meetingContextFor(session),
+    candidateTimes: candidateTimesFrom(slots),
+    whySelected: "",
+    bundleStatus: bundleStatusFor(bundle),
+    idempotencyKey: `approve:${draft.id}`,
+    expiresAtIso: draft.expiresAt,
+  });
+  await deps.store.audit(session.id, "approval_requested", "soon", { draftId: draft.id });
   return { outcome: "awaiting_approval", slots };
 }

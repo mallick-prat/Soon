@@ -8,6 +8,7 @@ import type {
   SchedulingSession,
   SchedulingState,
 } from "@soon/shared-types";
+import type { BundleStatus, CandidateTime } from "@soon/realtime-protocol";
 
 /**
  * ports the orchestrator depends on. adapters (prisma repos, realtime gateway
@@ -73,6 +74,25 @@ export type CommandDispatcher = {
     draftId: string;
     text: string;
     approvalSource: "explicit" | "bundle";
+    idempotencyKey: string;
+    expiresAtIso: string;
+  }): Promise<{ commandId: string }>;
+  /**
+   * enqueue a request_approval command carrying the full draft so the mac
+   * shows its private approval window. the user's choice returns as an
+   * approval_decision device event; the cloud then issues the actual send.
+   * resolves when persisted (not delivered).
+   */
+  enqueueApprovalRequest(input: {
+    userId: string;
+    sessionId: string;
+    conversationReference: string;
+    draftId: string;
+    text: string;
+    meetingContext: string;
+    candidateTimes: CandidateTime[];
+    whySelected: string;
+    bundleStatus: BundleStatus;
     idempotencyKey: string;
     expiresAtIso: string;
   }): Promise<{ commandId: string }>;

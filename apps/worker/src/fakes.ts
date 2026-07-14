@@ -133,6 +133,12 @@ export class FakeInterpreter implements Interpreter {
 
 export class FakeDispatcher implements CommandDispatcher {
   sends: Array<{ draftId: string; text: string; approvalSource: string; idempotencyKey: string }> = [];
+  approvalRequests: Array<{
+    draftId: string;
+    text: string;
+    candidateTimes: Array<{ slotId: string; label: string }>;
+    idempotencyKey: string;
+  }> = [];
   notifications: Array<{ title: string; subtext?: string | undefined }> = [];
 
   async enqueueSend(input: {
@@ -143,6 +149,21 @@ export class FakeDispatcher implements CommandDispatcher {
   }): Promise<{ commandId: string }> {
     this.sends.push(input);
     return { commandId: `cmd-${this.sends.length}` };
+  }
+
+  async enqueueApprovalRequest(input: {
+    draftId: string;
+    text: string;
+    candidateTimes: Array<{ slotId: string; label: string }>;
+    idempotencyKey: string;
+  }): Promise<{ commandId: string }> {
+    this.approvalRequests.push({
+      draftId: input.draftId,
+      text: input.text,
+      candidateTimes: input.candidateTimes,
+      idempotencyKey: input.idempotencyKey,
+    });
+    return { commandId: `appr-${this.approvalRequests.length}` };
   }
 
   async notify(_userId: string, title: string, subtext?: string): Promise<void> {

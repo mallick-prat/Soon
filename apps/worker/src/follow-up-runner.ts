@@ -7,6 +7,7 @@ import {
   type PreSendSnapshot,
 } from "@soon/follow-up-engine";
 import type { Clock, CommandDispatcher, Interpreter, SessionStore } from "./ports.js";
+import { meetingContextFor } from "./approval-request.js";
 
 export type FollowUpDeps = {
   store: SessionStore;
@@ -99,7 +100,19 @@ export async function runFollowUpTick(
 
   if (policy.requiresApproval) {
     await deps.store.transition(session.id, "awaiting_follow_up_approval");
-    await deps.dispatcher.notify(session.userId, "follow-up ready", drafted.text, ["review", "stop"]);
+    await deps.dispatcher.enqueueApprovalRequest({
+      userId: session.userId,
+      sessionId: session.id,
+      conversationReference,
+      draftId,
+      text: drafted.text,
+      meetingContext: meetingContextFor(session),
+      candidateTimes: [],
+      whySelected: "",
+      bundleStatus: { mode: "approve_every" },
+      idempotencyKey: `approve:${draftId}`,
+      expiresAtIso: new Date(now.getTime() + 12 * 3_600_000).toISOString(),
+    });
     return { kind: "awaiting_approval" };
   }
 

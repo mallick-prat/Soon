@@ -33,6 +33,10 @@ describe("runProposalRound", () => {
     expect(d.store.drafts).toHaveLength(1);
     expect(d.store.drafts[0]!.requiresApproval).toBe(true);
     expect(d.dispatcher.sends).toHaveLength(0);
+    // the full draft is dispatched to the mac for local approval.
+    expect(d.dispatcher.approvalRequests).toHaveLength(1);
+    expect(d.dispatcher.approvalRequests[0]!.text).toBe(d.store.drafts[0]!.text);
+    expect(d.dispatcher.approvalRequests[0]!.candidateTimes).toHaveLength(3);
     expect((await d.store.get("session-1")).state).toBe("awaiting_user_approval");
   });
 
