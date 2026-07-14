@@ -108,6 +108,23 @@ export async function nextPendingCommands(
   });
 }
 
+/**
+ * next batch of unexpired pending commands across ALL users, in global
+ * sequence order — the drainer's fetch. per-user fairness is out of scope for
+ * the single-primary-user v1; revisit with a per-user round-robin at scale.
+ */
+export async function pendingCommandsAcrossUsers(limit = 50): Promise<OutboxCommand[]> {
+  const db = getDb();
+  return db.outboxCommand.findMany({
+    where: {
+      status: OutboxStatus.pending,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+    },
+    orderBy: { sequenceNumber: "asc" },
+    take: limit,
+  });
+}
+
 /** records an inbound receipt from the mac agent, idempotently */
 export async function recordInboxReceipt(input: {
   userId: string;

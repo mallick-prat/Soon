@@ -46,6 +46,7 @@ export {
   enqueueOutboxCommand,
   advanceOutboxStatus,
   nextPendingCommands,
+  pendingCommandsAcrossUsers,
   recordInboxReceipt,
   type EnqueueOutboxCommandInput,
   type AdvanceOutboxResult,

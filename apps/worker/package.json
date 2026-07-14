@@ -24,6 +24,7 @@
     "@soon/approval-engine": "workspace:*",
     "@soon/follow-up-engine": "workspace:*",
     "@soon/observability": "workspace:*",
-    "@soon/realtime-protocol": "workspace:*"
+    "@soon/realtime-protocol": "workspace:*",
+    "@soon/security": "workspace:*"
   }
 }
