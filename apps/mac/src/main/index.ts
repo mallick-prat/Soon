@@ -5,7 +5,7 @@
  */
 import path from "node:path";
 
-import { app, powerMonitor, shell } from "electron";
+import { app, clipboard, powerMonitor, shell } from "electron";
 import pino from "pino";
 import { serializeError } from "serialize-error";
 
@@ -88,9 +88,10 @@ const main = async (): Promise<void> => {
 
   const provider = new PhotonProvider({ onError: (error) => logDetail("imessage watcher error", error) });
   const eventFactory = new DeviceEventFactory({
-    // post-enrollment this is the server mac_devices.id — the id the gateway
-    // authenticates the socket with and routes commands on.
-    deviceId: settingsStore.get().deviceId,
+    // resolved per event: post-enrollment this becomes the server mac_devices.id
+    // — the id the gateway authenticates the socket with and routes commands on
+    // — so pairing takes effect without a restart.
+    deviceId: () => settingsStore.get().deviceId,
     nextSequence: () => settingsStore.nextOutboundSequence(),
   });
 
@@ -231,6 +232,32 @@ const main = async (): Promise<void> => {
       showPrivateNotification({ title: "imessage check", body: "watching chat.db — permissions look ok" });
     },
     onReconnectCalendar: () => void shell.openExternal(`${DASHBOARD_URL}/settings/calendar`),
+    onPairDevice: () => {
+      // pairs from a code the user copied on the dashboard connections page.
+      const code = clipboard.readText().trim();
+      if (code === "") {
+        showPrivateNotification({
+          title: "no pairing code found",
+          body: "copy a code from the dashboard connections page first",
+        });
+        return;
+      }
+      void enroller
+        .register(code)
+        .then(({ serverDeviceId }) => {
+          log.info({ serverDeviceId }, "device paired from clipboard");
+          showPrivateNotification({ title: "mac paired", body: "connecting to soon" });
+          realtime.connect();
+          tray?.setState("on");
+        })
+        .catch((error: unknown) => {
+          logDetail("pairing failed", error);
+          showPrivateNotification({
+            title: "pairing failed",
+            body: "the code may be expired — generate a new one",
+          });
+        });
+    },
     onPreferences: () => void shell.openExternal(`${DASHBOARD_URL}/settings`),
     onOpenDashboard: () => void shell.openExternal(DASHBOARD_URL),
     onQuit: () => app.quit(),

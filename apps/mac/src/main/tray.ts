@@ -25,6 +25,7 @@ export interface TrayHandlers {
   onTogglePause: () => void;
   onTestImessage: () => void;
   onReconnectCalendar: () => void;
+  onPairDevice: () => void;
   onPreferences: () => void;
   onOpenDashboard: () => void;
   onQuit: () => void;
@@ -58,6 +59,7 @@ export const createTray = (handlers: TrayHandlers): TrayController => {
       { label: state === "paused" ? "resume" : "pause", click: handlers.onTogglePause },
       { label: "test imessage", click: handlers.onTestImessage },
       { label: "reconnect calendar", click: handlers.onReconnectCalendar },
+      { label: "pair device", click: handlers.onPairDevice },
       { type: "separator" },
       { label: "preferences…", click: handlers.onPreferences },
       { label: "open dashboard", click: handlers.onOpenDashboard },
