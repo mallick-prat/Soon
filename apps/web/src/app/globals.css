@@ -59,12 +59,16 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* every interactive element fully rounded per DESIGN.md.
+   defined as a @utility (not a @layer components class) so it can be
+   composed with `@apply btn` in the variants below — tailwind v4 only
+   lets `@apply` reference utilities, not other component classes. */
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-full text-sm font-semibold leading-none transition-colors cursor-pointer select-none;
+  padding: 10px 20px;
+}
+
 @layer components {
-  /* every interactive element fully rounded per DESIGN.md */
-  .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-full text-sm font-semibold leading-none transition-colors cursor-pointer select-none;
-    padding: 10px 20px;
-  }
   .btn:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px var(--color-ring-focus);
