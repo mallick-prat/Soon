@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { loadDrainerConfigFromEnv, startOutboxDrainer } from "./bootstrap.js";
+import { configureWorker, loadDrainerConfigFromEnv, startOutboxDrainer } from "./bootstrap.js";
+import { getComposition, resetComposition } from "./composition.js";
+import { FakeAvailability, FakeDispatcher, FakeInterpreter, FakeStore, makeSession } from "./fakes.js";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -59,5 +61,27 @@ describe("startOutboxDrainer", () => {
 
     await sleep(25);
     expect(calls).toBe(afterStop); // no further drains after stop()
+  });
+});
+
+describe("configureWorker", () => {
+  it("wires the provided adapters into the composition root", () => {
+    const store = new FakeStore(makeSession());
+    const availability = new FakeAvailability();
+    const interpreter = new FakeInterpreter();
+    const dispatcher = new FakeDispatcher();
+    const clock = { now: () => new Date("2026-07-17T12:00:00.000Z") };
+
+    configureWorker({ store, availability, interpreter, dispatcher, clock });
+
+    const comp = getComposition();
+    expect(comp.store).toBe(store);
+    expect(comp.availability).toBe(availability);
+    expect(comp.interpreter).toBe(interpreter);
+    expect(comp.dispatcher).toBe(dispatcher);
+    expect(comp.clock).toBe(clock);
+    expect(typeof comp.retention.expireSessionMessageText).toBe("function");
+    expect(typeof comp.runFollowUpTick).toBe("function");
+    resetComposition();
   });
 });
