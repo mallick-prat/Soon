@@ -29,4 +29,12 @@ export {
   signEnvelope,
   verifyEnvelopeSignature,
 } from "./signature.js";
+export {
+  deviceProofMessage,
+  signDeviceProof,
+  verifyDeviceProof,
+  mintEnrollmentToken,
+  verifyEnrollmentToken,
+  type MintEnrollmentTokenInput,
+} from "./device-enrollment.js";
 export { requireEnv } from "./env.js";
