@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { CandidateSlot } from "@soon/shared-types";
 import { confirmAndCreateEvent } from "./confirm.js";
-import { FakeAvailability, FakeDispatcher, FakeStore, fixedClock, makeSession } from "./fakes.js";
+import {
+  FakeAvailability,
+  FakeDispatcher,
+  FakeInterpreter,
+  FakeStore,
+  fixedClock,
+  makeSession,
+} from "./fakes.js";
 
 const SLOT: CandidateSlot = {
   id: "slot-a",
@@ -18,27 +25,38 @@ function deps(overrides = {}) {
   const session = makeSession({ state: "interpreting_response", ...overrides });
   const store = new FakeStore(session);
   const availability = new FakeAvailability();
+  const interpreter = new FakeInterpreter();
   const dispatcher = new FakeDispatcher();
-  return { store, availability, dispatcher, clock: fixedClock("2026-07-20T12:00:00Z"), session };
+  return {
+    store,
+    availability,
+    interpreter,
+    dispatcher,
+    clock: fixedClock("2026-07-20T12:00:00Z"),
+    session,
+  };
 }
 
 describe("confirmAndCreateEvent", () => {
   it("creates the event, marks the slot booked, and notifies privately", async () => {
     const d = deps();
     await d.store.saveCandidateSlots("session-1", [SLOT], 1);
-    const result = await confirmAndCreateEvent(d, d.session, SLOT, { email: "alex@example.com", firstName: "Alex" }, "conv-1");
+    const result = await confirmAndCreateEvent(d, d.session, SLOT, { email: "alex@example.com", firstName: "Alex" }, "conv-1", "conv-ref");
     expect(result).toEqual({ outcome: "created", eventId: "event-1" });
     expect(d.store.slots.get("session-1")![0]!.status).toBe("booked");
     const note = d.dispatcher.notifications.find((n) => n.title === "scheduled with alex");
     expect(note).toBeDefined();
     expect(note!.subtext).toContain("wed");
-    expect((await d.store.get("session-1")).state).toBe("drafting_confirmation");
+    // no bundle → the confirmation message is drafted and parked for approval.
+    expect(d.dispatcher.approvalRequests).toHaveLength(1);
+    expect(d.store.drafts.at(-1)!.objective).toBe("confirm_invite");
+    expect((await d.store.get("session-1")).state).toBe("scheduled");
   });
 
   it("is idempotent under retry — same idempotency key returns the same event", async () => {
     const d = deps();
     await d.store.saveCandidateSlots("session-1", [SLOT], 1);
-    const first = await confirmAndCreateEvent(d, d.session, SLOT, { email: "a@b.co", firstName: "alex" }, "conv-1");
+    const first = await confirmAndCreateEvent(d, d.session, SLOT, { email: "a@b.co", firstName: "alex" }, "conv-1", "conv-ref");
     // simulate a workflow retry: the step re-runs from the pre-confirmation state
     d.store.sessions.set("session-1", { ...(await d.store.get("session-1")), state: "interpreting_response" });
     const again = await confirmAndCreateEvent(
@@ -47,6 +65,7 @@ describe("confirmAndCreateEvent", () => {
       SLOT,
       { email: "a@b.co", firstName: "alex" },
       "conv-1",
+      "conv-ref",
     );
     expect(d.availability.createdEvents).toHaveLength(1);
     expect(again).toEqual(first);
@@ -56,7 +75,7 @@ describe("confirmAndCreateEvent", () => {
     const d = deps();
     await d.store.saveCandidateSlots("session-1", [SLOT], 1);
     d.availability.takenSlots.add(`${Date.parse(SLOT.startsAt)}`);
-    const result = await confirmAndCreateEvent(d, d.session, SLOT, { email: "a@b.co", firstName: "alex" }, "conv-1");
+    const result = await confirmAndCreateEvent(d, d.session, SLOT, { email: "a@b.co", firstName: "alex" }, "conv-1", "conv-ref");
     expect(result).toEqual({ outcome: "slot_taken" });
     expect(d.availability.createdEvents).toHaveLength(0);
     expect(d.store.slots.get("session-1")![0]!.status).toBe("stale");
@@ -72,7 +91,7 @@ describe("confirmAndCreateEvent", () => {
       capturedTitle = (input as { title: string }).title;
       return orig(input);
     };
-    await confirmAndCreateEvent(d, d.session, SLOT, { email: "a@b.co", firstName: "Alex" }, "conv-1");
+    await confirmAndCreateEvent(d, d.session, SLOT, { email: "a@b.co", firstName: "Alex" }, "conv-1", "conv-ref");
     expect(capturedTitle).toBe("meeting with alex");
   });
 });
