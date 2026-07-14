@@ -46,7 +46,9 @@ export function OnboardingWizard() {
   const [styleKey, setStyleKey] = useState("learn");
   const [approvalMode, setApprovalMode] = useState<"approve_every" | "bundle">("approve_every");
 
-  async function save(body: Record<string, unknown>): Promise<boolean> {
+  // best-effort persistence: onboarding never traps the user on a failed write
+  // (they can adjust everything later in preferences), it just tells them.
+  async function save(body: Record<string, unknown>): Promise<void> {
     setSaving(true);
     setNotice(null);
     try {
@@ -56,17 +58,12 @@ export function OnboardingWizard() {
         body: JSON.stringify(body),
       });
       if (res.status === 503) {
-        setNotice("no database connected — your choices aren't saved in demo mode, but you can keep exploring.");
-        return true; // let demo users continue
+        setNotice("demo mode — your choices aren't saved yet, but you can keep going.");
+      } else if (!res.ok) {
+        setNotice("couldn't save that just now — you can set it in preferences later.");
       }
-      if (!res.ok) {
-        setNotice("couldn't save that step — try again.");
-        return false;
-      }
-      return true;
     } catch {
-      setNotice("network error — try again.");
-      return false;
+      setNotice("network hiccup — you can set this in preferences later.");
     } finally {
       setSaving(false);
     }
@@ -79,7 +76,8 @@ export function OnboardingWizard() {
   };
 
   async function saveThen(body: Record<string, unknown>) {
-    if (await save(body)) next();
+    await save(body);
+    next();
   }
 
   return (
