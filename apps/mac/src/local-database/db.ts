@@ -3,7 +3,7 @@ import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 
 import * as schema from "./schema.js";
-import { DDL } from "./schema.js";
+import { DDL, MIGRATIONS } from "./schema.js";
 
 export type LocalDb = BetterSQLite3Database<typeof schema>;
 
@@ -21,6 +21,16 @@ export const openLocalDatabase = (path: string): OpenedDatabase => {
   }
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(DDL);
+  // additive migrations — ignore "duplicate column" on already-migrated dbs.
+  for (const statement of MIGRATIONS) {
+    try {
+      sqlite.exec(statement);
+    } catch (error) {
+      if (!(error instanceof Error) || !/duplicate column name/i.test(error.message)) {
+        throw error;
+      }
+    }
+  }
   const db = drizzle(sqlite, { schema });
   return { db, sqlite, close: () => sqlite.close() };
 };

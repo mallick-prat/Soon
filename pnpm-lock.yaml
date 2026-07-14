@@ -41,6 +41,9 @@ importers:
       '@soon/realtime-protocol':
         specifier: workspace:*
         version: link:../../packages/realtime-protocol
+      '@soon/security':
+        specifier: workspace:*
+        version: link:../../packages/security
       '@soon/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types

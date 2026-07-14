@@ -57,6 +57,14 @@ export const settings = sqliteTable("settings", {
   lastOutboundSequence: integer("last_outbound_sequence").notNull().default(-1),
   /** encrypted device jwt, when provisioned. */
   deviceTokenEnc: text("device_token_enc"),
+  /** epoch ms the current device jwt expires; drives proactive refresh. */
+  deviceTokenExpiresAtMs: integer("device_token_expires_at_ms"),
+  /** encrypted ed25519 pkcs8 private key for device-proof refresh. */
+  devicePrivateKeyEnc: text("device_private_key_enc"),
+  /** ed25519 spki public key (not secret) presented at enrollment. */
+  devicePublicKey: text("device_public_key"),
+  /** server-assigned mac_devices.id once enrolled — the gateway routes on it. */
+  serverDeviceId: text("server_device_id"),
 });
 
 /** hand-written ddl kept in lockstep with the tables above. */
@@ -94,6 +102,22 @@ CREATE TABLE IF NOT EXISTS settings (
   trigger_emoji TEXT NOT NULL,
   last_inbound_sequence INTEGER NOT NULL DEFAULT -1,
   last_outbound_sequence INTEGER NOT NULL DEFAULT -1,
-  device_token_enc TEXT
+  device_token_enc TEXT,
+  device_token_expires_at_ms INTEGER,
+  device_private_key_enc TEXT,
+  device_public_key TEXT,
+  server_device_id TEXT
 );
 `;
+
+/**
+ * additive column migrations for databases created before a column existed.
+ * each runs independently and a "duplicate column" failure is ignored, so the
+ * set is safe to run on every open (sqlite has no ADD COLUMN IF NOT EXISTS).
+ */
+export const MIGRATIONS: string[] = [
+  "ALTER TABLE settings ADD COLUMN device_token_expires_at_ms INTEGER",
+  "ALTER TABLE settings ADD COLUMN device_private_key_enc TEXT",
+  "ALTER TABLE settings ADD COLUMN device_public_key TEXT",
+  "ALTER TABLE settings ADD COLUMN server_device_id TEXT",
+];

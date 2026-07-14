@@ -244,6 +244,10 @@ export interface AppSettings {
   lastInboundSequence: number;
   lastOutboundSequence: number;
   deviceTokenEnc: string | null;
+  deviceTokenExpiresAtMs: number | null;
+  devicePrivateKeyEnc: string | null;
+  devicePublicKey: string | null;
+  serverDeviceId: string | null;
 }
 
 const SETTINGS_ID = 1;
@@ -282,6 +286,36 @@ export class SettingsStore {
 
   setDeviceTokenEnc(deviceTokenEnc: string | null): void {
     this.db.update(settings).set({ deviceTokenEnc }).where(eq(settings.id, SETTINGS_ID)).run();
+  }
+
+  /** persist the ed25519 device keypair (private key already encrypted). */
+  setDeviceKeypair(devicePrivateKeyEnc: string, devicePublicKey: string): void {
+    this.db
+      .update(settings)
+      .set({ devicePrivateKeyEnc, devicePublicKey })
+      .where(eq(settings.id, SETTINGS_ID))
+      .run();
+  }
+
+  /**
+   * record the server-assigned device id. also overwrites deviceId so device
+   * events carry the id the gateway authenticates + routes on (they must match).
+   */
+  setServerDeviceId(serverDeviceId: string): void {
+    this.db
+      .update(settings)
+      .set({ serverDeviceId, deviceId: serverDeviceId })
+      .where(eq(settings.id, SETTINGS_ID))
+      .run();
+  }
+
+  /** persist the gateway access token and its expiry (encrypted token). */
+  setAccessToken(deviceTokenEnc: string, deviceTokenExpiresAtMs: number): void {
+    this.db
+      .update(settings)
+      .set({ deviceTokenEnc, deviceTokenExpiresAtMs })
+      .where(eq(settings.id, SETTINGS_ID))
+      .run();
   }
 
   /**

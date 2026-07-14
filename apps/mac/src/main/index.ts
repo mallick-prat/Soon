@@ -22,6 +22,8 @@ import { RealtimeClient } from "../realtime/client.js";
 import { DeviceEventFactory } from "../realtime/events.js";
 import { CommandProcessor } from "../realtime/processor.js";
 import { createSecretBox } from "../secure-storage/index.js";
+import { DeviceEnroller } from "../enrollment/enroller.js";
+import { createSettingsEnrollmentStore } from "../enrollment/store.js";
 import { registerConfiguredGlobalShortcut, unregisterAllGlobalShortcuts } from "../shortcuts/index.js";
 import { initUpdater } from "../updater/index.js";
 import { TriggerEngine } from "./engine.js";
@@ -54,9 +56,41 @@ const main = async (): Promise<void> => {
   const receipts = new ReceiptStore(opened.db);
   const pendingActions = new PendingActionStore(opened.db, secretBox);
 
+  // device enrollment: pairs the mac with the backend and keeps the gateway
+  // access token fresh. an optional boot code enables headless/dev pairing.
+  const enroller = new DeviceEnroller({
+    store: createSettingsEnrollmentStore(settingsStore, secretBox),
+    post: async (routePath, body) => {
+      const res = await fetch(`${DASHBOARD_URL}${routePath}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      let json: unknown = null;
+      try {
+        json = await res.json();
+      } catch {
+        json = null;
+      }
+      return { status: res.status, json };
+    },
+    appVersion: app.getVersion(),
+  });
+  const bootEnrollmentCode = process.env["SOON_ENROLLMENT_CODE"];
+  if (bootEnrollmentCode !== undefined && bootEnrollmentCode !== "" && !enroller.isEnrolled()) {
+    try {
+      const { serverDeviceId } = await enroller.register(bootEnrollmentCode);
+      log.info({ serverDeviceId }, "device enrolled from boot code");
+    } catch (error) {
+      logDetail("device enrollment failed", error);
+    }
+  }
+
   const provider = new PhotonProvider({ onError: (error) => logDetail("imessage watcher error", error) });
   const eventFactory = new DeviceEventFactory({
-    deviceId: settings.deviceId,
+    // post-enrollment this is the server mac_devices.id — the id the gateway
+    // authenticates the socket with and routes commands on.
+    deviceId: settingsStore.get().deviceId,
     nextSequence: () => settingsStore.nextOutboundSequence(),
   });
 
@@ -155,11 +189,11 @@ const main = async (): Promise<void> => {
 
   realtime = new RealtimeClient({
     url: GATEWAY_URL,
-    getToken: () => {
+    getToken: async () => {
       const envToken = process.env["SOON_DEVICE_TOKEN"];
       if (envToken !== undefined && envToken !== "") return envToken;
-      const enc = settingsStore.get().deviceTokenEnc;
-      return enc === null ? "" : secretBox.decryptString(enc);
+      // refreshes via device-key proof when the token nears expiry.
+      return enroller.getAccessToken();
     },
     processor,
     log: logDetail,
@@ -221,15 +255,27 @@ const main = async (): Promise<void> => {
     opened.close();
   });
 
-  realtime.connect();
+  // only connect to the gateway once we have a device identity — an
+  // unenrolled mac has no valid token and would just fail auth in a loop.
+  const canConnect =
+    enroller.isEnrolled() ||
+    (process.env["SOON_DEVICE_TOKEN"] !== undefined && process.env["SOON_DEVICE_TOKEN"] !== "");
+  if (canConnect) {
+    realtime.connect();
+  } else {
+    tray?.setState("needs_permission");
+    log.info("device not enrolled — pair it from the dashboard to connect");
+  }
   await engine.start();
 
   // health snapshot on boot.
-  const health = eventFactory.build("health", {
-    appVersion: app.getVersion(),
-    messagesPermission: "unknown",
-  });
-  void realtime.emitEvent(health);
+  if (canConnect) {
+    const health = eventFactory.build("health", {
+      appVersion: app.getVersion(),
+      messagesPermission: "unknown",
+    });
+    void realtime.emitEvent(health);
+  }
 
   log.info({ deviceId: settings.deviceId }, "soon mac companion started");
 };
