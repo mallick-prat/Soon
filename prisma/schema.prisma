@@ -1,0 +1,797 @@
+// soon — hosted control plane schema
+// enums mirror @soon/shared-types string unions exactly.
+
+generator client {
+  provider               = "prisma-client"
+  output                 = "../packages/database/src/generated/prisma"
+  runtime                = "nodejs"
+  moduleFormat           = "esm"
+  generatedFileExtension = "ts"
+  importFileExtension    = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// enums (mirroring packages/shared-types/src)
+// ---------------------------------------------------------------------------
+
+enum SchedulingState {
+  triggered
+  understanding_context
+  needs_user_input
+  finding_initial_slots
+  drafting_proposal
+  awaiting_user_approval
+  sending_approved_message
+  waiting_for_attendee
+  interpreting_response
+  finding_alternative_slots
+  scheduling_follow_up
+  waiting_for_follow_up
+  follow_up_due
+  drafting_follow_up
+  awaiting_follow_up_approval
+  sending_follow_up
+  follow_up_sequence_exhausted
+  waiting_for_email
+  confirming_slot
+  creating_event
+  drafting_confirmation
+  scheduled
+  rescheduling
+  cancelling
+  paused
+  taken_over
+  expired
+  failed
+
+  @@map("scheduling_state")
+}
+
+enum ApprovalState {
+  not_required
+  pending
+  approved_once
+  approved_by_bundle
+  edited_and_approved
+  rejected
+  expired
+
+  @@map("approval_state")
+}
+
+enum ApprovalMode {
+  approve_every
+  bundle
+  calendar_only
+
+  @@map("approval_mode")
+}
+
+enum MeetingType {
+  quick_call
+  catch_up
+  coffee
+  lunch
+  dinner
+  meeting
+
+  @@map("meeting_type")
+}
+
+enum MeetingFormat {
+  virtual
+  phone
+  in_person
+  unspecified
+
+  @@map("meeting_format")
+}
+
+enum CandidateSlotStatus {
+  candidate
+  proposed
+  accepted
+  rejected
+  stale
+  booked
+
+  @@map("candidate_slot_status")
+}
+
+enum DraftObjective {
+  propose_slots
+  ask_for_constraint
+  ask_for_email
+  clarify_selection
+  confirm_time
+  confirm_invite
+  follow_up
+  reschedule
+  cancel
+
+  @@map("draft_objective")
+}
+
+// draftObjectiveSchema.exclude(["reschedule", "cancel"])
+enum BundleObjective {
+  propose_slots
+  ask_for_constraint
+  ask_for_email
+  clarify_selection
+  confirm_time
+  confirm_invite
+  follow_up
+
+  @@map("bundle_objective")
+}
+
+enum ApprovalBundleStatus {
+  active
+  expired
+  consumed
+  revoked
+
+  @@map("approval_bundle_status")
+}
+
+enum FollowUpAttemptStatus {
+  scheduled
+  awaiting_approval
+  approved
+  sending
+  sent
+  acknowledged
+  cancelled
+  deferred_quiet_hours
+  expired
+  failed
+
+  @@map("follow_up_attempt_status")
+}
+
+enum RelationshipType {
+  close_friend
+  casual_acquaintance
+  founder
+  investor
+  colleague
+  mentor
+  professional_contact
+  family
+  unknown
+
+  @@map("relationship_type")
+}
+
+enum WaitingOn {
+  user
+  attendee
+  system
+
+  @@map("waiting_on")
+}
+
+enum SenderType {
+  user
+  attendee
+
+  @@map("sender_type")
+}
+
+enum MessageDirection {
+  inbound
+  outbound
+
+  @@map("message_direction")
+}
+
+// operational enums (not part of shared-types)
+
+enum GoogleConnectionStatus {
+  connected
+  expired
+  revoked
+  error
+
+  @@map("google_connection_status")
+}
+
+enum MacDeviceStatus {
+  pending
+  active
+  offline
+  revoked
+
+  @@map("mac_device_status")
+}
+
+enum MessagesPermissionStatus {
+  unknown
+  not_determined
+  granted
+  denied
+
+  @@map("messages_permission_status")
+}
+
+enum DraftStatus {
+  pending
+  approved
+  rejected
+  expired
+  sending
+  sent
+  superseded
+
+  @@map("draft_status")
+}
+
+enum FollowUpMode {
+  approve_each
+  bundle
+
+  @@map("follow_up_mode")
+}
+
+enum WorkflowRunStatus {
+  running
+  suspended
+  completed
+  failed
+  cancelled
+
+  @@map("workflow_run_status")
+}
+
+enum OutboxStatus {
+  pending
+  dispatched
+  delivered
+  acknowledged
+  expired
+  failed
+  cancelled
+
+  @@map("outbox_status")
+}
+
+enum ConversationType {
+  direct
+  group
+
+  @@map("conversation_type")
+}
+
+enum ActorType {
+  user
+  attendee
+  system
+  mac_agent
+
+  @@map("actor_type")
+}
+
+enum StyleMode {
+  adaptive
+  fixed
+
+  @@map("style_mode")
+}
+
+// ---------------------------------------------------------------------------
+// identity + connections
+// ---------------------------------------------------------------------------
+
+model User {
+  id                       String       @id @default(cuid())
+  email                    String       @unique
+  name                     String?
+  timezone                 String       @default("America/New_York")
+  approvalMode             ApprovalMode @default(approve_every) @map("approval_mode")
+  triggerEmoji             String       @default("⏳") @map("trigger_emoji")
+  previousTriggerEmoji     String?      @map("previous_trigger_emoji")
+  previousTriggerExpiresAt DateTime?    @map("previous_trigger_expires_at")
+  followUpDefaultEnabled   Boolean      @default(true) @map("follow_up_default_enabled")
+  createdAt                DateTime     @default(now()) @map("created_at")
+  updatedAt                DateTime     @updatedAt @map("updated_at")
+
+  googleConnection    GoogleConnection?
+  calendarPreference  CalendarPreference?
+  stylePreference     StylePreference?
+  macDevices          MacDevice[]
+  contacts            Contact[]
+  conversations       Conversation[]
+  schedulingSessions  SchedulingSession[]
+  styleEdits          StyleEdit[]
+  auditEvents         AuditEvent[]
+  followUpPolicies    FollowUpPolicy[]
+  outboxCommands      OutboxCommand[]
+  inboxReceipts       InboxReceipt[]
+
+  @@map("users")
+}
+
+model GoogleConnection {
+  id                    String                 @id @default(cuid())
+  userId                String                 @unique @map("user_id")
+  googleAccountEmail    String?                @map("google_account_email")
+  encryptedAccessToken  String                 @map("encrypted_access_token")
+  encryptedRefreshToken String                 @map("encrypted_refresh_token")
+  accessTokenExpiresAt  DateTime?              @map("access_token_expires_at")
+  scopes                String[]               @default([])
+  status                GoogleConnectionStatus @default(connected)
+  lastSyncAt            DateTime?              @map("last_sync_at")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("google_connections")
+}
+
+model CalendarPreference {
+  id                     String   @id @default(cuid())
+  userId                 String   @unique @map("user_id")
+  destinationCalendarId  String   @default("primary") @map("destination_calendar_id")
+  blockingCalendarIds    String[] @default([]) @map("blocking_calendar_ids")
+  excludedCalendarIds    String[] @default([]) @map("excluded_calendar_ids")
+  defaultDurationMinutes Int      @default(30) @map("default_duration_minutes")
+  minimumNoticeMinutes   Int      @default(120) @map("minimum_notice_minutes")
+  bufferBeforeMinutes    Int      @default(0) @map("buffer_before_minutes")
+  bufferAfterMinutes     Int      @default(0) @map("buffer_after_minutes")
+  maximumMeetingsPerDay  Int      @default(8) @map("maximum_meetings_per_day")
+  workingHoursJson       Json     @default("[]") @map("working_hours_json")
+  preferredWindowsJson   Json     @default("[]") @map("preferred_windows_json")
+  followUpDelaysJson     Json     @default("[48,120,240]") @map("follow_up_delays_json")
+  quietHoursJson         Json?    @map("quiet_hours_json")
+  weekendEnabled         Boolean  @default(false) @map("weekend_enabled")
+  videoDefault           String   @default("meet") @map("video_default")
+  timezone               String   @default("America/New_York")
+  tentativeBlocks        Boolean  @default(true) @map("tentative_blocks")
+  travelBufferMinutes    Int      @default(30) @map("travel_buffer_minutes")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("calendar_preferences")
+}
+
+model StylePreference {
+  id                 String    @id @default(cuid())
+  userId             String    @unique @map("user_id")
+  mode               StyleMode @default(adaptive)
+  formality          String?
+  warmth             String?
+  emojiEnabled       Boolean   @default(false) @map("emoji_enabled")
+  punctuationStyle   String?   @map("punctuation_style")
+  customInstructions String?   @map("custom_instructions")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("style_preferences")
+}
+
+model MacDevice {
+  id                       String                   @id @default(cuid())
+  userId                   String                   @map("user_id")
+  deviceName               String?                  @map("device_name")
+  devicePublicKey          String                   @unique @map("device_public_key")
+  status                   MacDeviceStatus          @default(pending)
+  lastSeenAt               DateTime?                @map("last_seen_at")
+  messagesPermissionStatus MessagesPermissionStatus @default(unknown) @map("messages_permission_status")
+  appVersion               String?                  @map("app_version")
+  createdAt                DateTime                 @default(now()) @map("created_at")
+  updatedAt                DateTime                 @updatedAt @map("updated_at")
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outboxCommands OutboxCommand[]
+  inboxReceipts  InboxReceipt[]
+
+  @@index([userId, status])
+  @@map("mac_devices")
+}
+
+// ---------------------------------------------------------------------------
+// contacts + conversations
+// ---------------------------------------------------------------------------
+
+model Contact {
+  id               String           @id @default(cuid())
+  userId           String           @map("user_id")
+  normalizedPhone  String           @map("normalized_phone")
+  displayName      String?          @map("display_name")
+  timezone         String?
+  relationshipType RelationshipType @default(unknown) @map("relationship_type")
+  preferredEmailId String?          @map("preferred_email_id")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  user                User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emails              ContactEmail[]
+  styleProfile        ConversationStyleProfile?
+  sessionParticipants SessionParticipant[]
+  conversations       Conversation[]
+
+  @@unique([userId, normalizedPhone])
+  @@map("contacts")
+}
+
+model ContactEmail {
+  id        String   @id @default(cuid())
+  contactId String   @map("contact_id")
+  email     String
+  source    String?
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, email])
+  @@map("contact_emails")
+}
+
+model ConversationStyleProfile {
+  id            String   @id @default(cuid())
+  contactId     String   @unique @map("contact_id")
+  profileJson   Json     @default("{}") @map("profile_json")
+  messageCount  Int      @default(0) @map("message_count")
+  lastUpdatedAt DateTime @default(now()) @map("last_updated_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@map("conversation_style_profiles")
+}
+
+model Conversation {
+  id                         String           @id @default(cuid())
+  userId                     String           @map("user_id")
+  localConversationReference String           @map("local_conversation_reference")
+  conversationType           ConversationType @default(direct) @map("conversation_type")
+  participantHash            String           @map("participant_hash")
+  contactId                  String?          @map("contact_id")
+  createdAt                  DateTime         @default(now()) @map("created_at")
+  updatedAt                  DateTime         @updatedAt @map("updated_at")
+
+  user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contact  Contact?            @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  sessions SchedulingSession[]
+
+  @@unique([userId, localConversationReference])
+  @@map("conversations")
+}
+
+// ---------------------------------------------------------------------------
+// scheduling sessions
+// ---------------------------------------------------------------------------
+
+model SchedulingSession {
+  id                      String          @id @default(cuid())
+  userId                  String          @map("user_id")
+  conversationId          String          @map("conversation_id")
+  state                   SchedulingState @default(triggered)
+  meetingType             MeetingType     @default(meeting) @map("meeting_type")
+  title                   String?
+  durationMinutes         Int             @default(30) @map("duration_minutes")
+  meetingFormat           MeetingFormat   @default(unspecified) @map("meeting_format")
+  location                String?
+  timezone                String          @default("America/New_York")
+  dateRangeStart          DateTime?       @map("date_range_start") @db.Date
+  dateRangeEnd            DateTime?       @map("date_range_end") @db.Date
+  triggerMessageReference String?         @map("trigger_message_reference")
+  calendarEventId         String?         @map("calendar_event_id")
+  approvalMode            ApprovalMode    @default(approve_every) @map("approval_mode")
+  activeApprovalBundleId  String?         @map("active_approval_bundle_id")
+  proposalRound           Int             @default(0) @map("proposal_round")
+  outboundMessageCount    Int             @default(0) @map("outbound_message_count")
+  errorCode               String?         @map("error_code")
+  nextActionAt            DateTime?       @map("next_action_at")
+  nextActionType          String?         @map("next_action_type")
+  waitingOn               WaitingOn?      @map("waiting_on")
+  followUpPolicyId        String?         @map("follow_up_policy_id")
+  durableWorkflowRunId    String?         @map("durable_workflow_run_id")
+  lastInboundAt           DateTime?       @map("last_inbound_at")
+  lastOutboundAt          DateTime?       @map("last_outbound_at")
+  snoozedUntil            DateTime?       @map("snoozed_until")
+  sensitive               Boolean         @default(false)
+  resolvedReason          String?         @map("resolved_reason")
+  createdAt               DateTime        @default(now()) @map("created_at")
+  updatedAt               DateTime        @updatedAt @map("updated_at")
+  completedAt             DateTime?       @map("completed_at")
+
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation     Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  participants     SessionParticipant[]
+  candidateSlots   CandidateSlot[]
+  messages         SessionMessage[]
+  drafts           OutboundDraft[]
+  approvalBundles  ApprovalBundle[]
+  auditEvents      AuditEvent[]
+  followUpPolicy   FollowUpPolicy?      @relation("session_policy", fields: [followUpPolicyId], references: [id], onDelete: SetNull)
+  followUpAttempts FollowUpAttempt[]
+  workflowRuns     WorkflowRun[]
+  styleEdits       StyleEdit[]
+
+  @@index([state, nextActionAt])
+  @@index([userId, state])
+  @@index([conversationId])
+  @@map("scheduling_sessions")
+}
+
+model SessionParticipant {
+  id          String    @id @default(cuid())
+  sessionId   String    @map("session_id")
+  contactId   String?   @map("contact_id")
+  handle      String
+  displayName String?   @map("display_name")
+  email       String?
+  isOrganizer Boolean   @default(false) @map("is_organizer")
+  respondedAt DateTime? @map("responded_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  session SchedulingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  contact Contact?          @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@unique([sessionId, handle])
+  @@map("session_participants")
+}
+
+model CandidateSlot {
+  id            String              @id @default(cuid())
+  sessionId     String              @map("session_id")
+  startsAt      DateTime            @map("starts_at")
+  endsAt        DateTime            @map("ends_at")
+  timezone      String
+  status        CandidateSlotStatus @default(candidate)
+  score         Float               @default(0)
+  proposalRound Int                 @default(0) @map("proposal_round")
+  createdAt     DateTime            @default(now()) @map("created_at")
+
+  session SchedulingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, status])
+  @@map("candidate_slots")
+}
+
+model SessionMessage {
+  id                    String           @id @default(cuid())
+  sessionId             String           @map("session_id")
+  localMessageReference String           @map("local_message_reference")
+  senderType            SenderType       @map("sender_type")
+  direction             MessageDirection
+  // raw text is retained briefly for interpretation, then nulled by a retention job
+  rawText               String?          @map("raw_text")
+  sanitizedText         String           @map("sanitized_text")
+  interpretationJson    Json?            @map("interpretation_json")
+  messageTimestamp      DateTime         @map("message_timestamp")
+  createdAt             DateTime         @default(now()) @map("created_at")
+
+  session SchedulingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, localMessageReference])
+  @@index([sessionId, messageTimestamp])
+  @@map("session_messages")
+}
+
+// ---------------------------------------------------------------------------
+// drafts + approvals
+// ---------------------------------------------------------------------------
+
+model OutboundDraft {
+  id                String         @id @default(cuid())
+  sessionId         String         @map("session_id")
+  objective         DraftObjective
+  text              String
+  editedText        String?        @map("edited_text")
+  alternativeTexts  Json           @default("[]") @map("alternative_texts")
+  referencedSlotIds String[]       @default([]) @map("referenced_slot_ids")
+  confidence        Float          @default(0)
+  requiresApproval  Boolean        @default(true) @map("requires_approval")
+  status            DraftStatus    @default(pending)
+  approvalState     ApprovalState  @default(pending) @map("approval_state")
+  approvalSource    String?        @map("approval_source")
+  approvalBundleId  String?        @map("approval_bundle_id")
+  expiresAt         DateTime       @map("expires_at")
+  approvedAt        DateTime?      @map("approved_at")
+  rejectedAt        DateTime?      @map("rejected_at")
+  sentAt            DateTime?      @map("sent_at")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  session          SchedulingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  approvalBundle   ApprovalBundle?   @relation(fields: [approvalBundleId], references: [id], onDelete: SetNull)
+  styleEdits       StyleEdit[]
+  followUpAttempts FollowUpAttempt[]
+
+  @@index([sessionId, status])
+  @@index([status, expiresAt])
+  @@map("outbound_drafts")
+}
+
+model ApprovalBundle {
+  id                      String               @id @default(cuid())
+  sessionId               String               @map("session_id")
+  allowedObjectives       BundleObjective[]    @map("allowed_objectives")
+  approvedSlotIds         String[]             @default([]) @map("approved_slot_ids")
+  approvedDateRangeStart  DateTime             @map("approved_date_range_start") @db.Date
+  approvedDateRangeEnd    DateTime             @map("approved_date_range_end") @db.Date
+  minimumDurationMinutes  Int                  @map("minimum_duration_minutes")
+  maximumDurationMinutes  Int                  @map("maximum_duration_minutes")
+  approvedParticipantIds  String[]             @default([]) @map("approved_participant_ids")
+  maximumOutboundMessages Int                  @default(3) @map("maximum_outbound_messages")
+  messagesUsed            Int                  @default(0) @map("messages_used")
+  expiresAt               DateTime             @map("expires_at")
+  status                  ApprovalBundleStatus @default(active)
+  createdAt               DateTime             @default(now()) @map("created_at")
+  updatedAt               DateTime             @updatedAt @map("updated_at")
+
+  session SchedulingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  drafts  OutboundDraft[]
+
+  @@index([sessionId, status])
+  @@map("approval_bundles")
+}
+
+model StyleEdit {
+  id               String   @id @default(cuid())
+  userId           String   @map("user_id")
+  sessionId        String?  @map("session_id")
+  draftId          String?  @map("draft_id")
+  originalText     String   @map("original_text")
+  editedText       String   @map("edited_text")
+  appliedToProfile Boolean  @default(false) @map("applied_to_profile")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session SchedulingSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  draft   OutboundDraft?     @relation(fields: [draftId], references: [id], onDelete: SetNull)
+
+  @@map("style_edits")
+}
+
+model AuditEvent {
+  id         String    @id @default(cuid())
+  userId     String?   @map("user_id")
+  sessionId  String?   @map("session_id")
+  eventType  String    @map("event_type")
+  actor      ActorType @default(system)
+  fromState  String?   @map("from_state")
+  toState    String?   @map("to_state")
+  detailJson Json?     @map("detail_json")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user    User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  session SchedulingSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_events")
+}
+
+// ---------------------------------------------------------------------------
+// follow-ups
+// ---------------------------------------------------------------------------
+
+model FollowUpPolicy {
+  id               String       @id @default(cuid())
+  userId           String?      @map("user_id")
+  sessionId        String?      @unique @map("session_id")
+  enabled          Boolean      @default(true)
+  mode             FollowUpMode @default(approve_each)
+  intervalHours    Json         @default("[48,120,240]") @map("interval_hours")
+  maximumAttempts  Int          @default(3) @map("maximum_attempts")
+  sessionMaxDays   Int          @default(30) @map("session_max_days")
+  quietHoursJson   Json         @default("{\"earliest\":\"09:00\",\"latest\":\"19:00\"}") @map("quiet_hours_json")
+  weekendsEnabled  Boolean      @default(false) @map("weekends_enabled")
+  requiresApproval Boolean      @default(true) @map("requires_approval")
+  approvalBundleId String?      @map("approval_bundle_id")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  user     User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions SchedulingSession[] @relation("session_policy")
+  attempts FollowUpAttempt[]
+
+  @@map("follow_up_policies")
+}
+
+model FollowUpAttempt {
+  id                      String                @id @default(cuid())
+  sessionId               String                @map("session_id")
+  policyId                String                @map("policy_id")
+  attemptNumber           Int                   @map("attempt_number")
+  scheduledFor            DateTime              @map("scheduled_for")
+  sendWindowStart         DateTime?             @map("send_window_start")
+  sendWindowEnd           DateTime?             @map("send_window_end")
+  status                  FollowUpAttemptStatus @default(scheduled)
+  draftId                 String?               @map("draft_id")
+  idempotencyKey          String                @unique @map("idempotency_key")
+  workflowRunId           String?               @map("workflow_run_id")
+  approvalTokenId         String?               @map("approval_token_id")
+  sentAt                  DateTime?             @map("sent_at")
+  deliveryAcknowledgedAt  DateTime?             @map("delivery_acknowledged_at")
+  createdAt               DateTime              @default(now()) @map("created_at")
+  updatedAt               DateTime              @updatedAt @map("updated_at")
+
+  session SchedulingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  policy  FollowUpPolicy    @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  draft   OutboundDraft?    @relation(fields: [draftId], references: [id], onDelete: SetNull)
+
+  @@unique([sessionId, attemptNumber])
+  @@index([status, scheduledFor])
+  @@map("follow_up_attempts")
+}
+
+// ---------------------------------------------------------------------------
+// durable execution + device transport
+// ---------------------------------------------------------------------------
+
+model WorkflowRun {
+  id              String            @id @default(cuid())
+  sessionId       String?           @map("session_id")
+  workflowType    String            @map("workflow_type")
+  engineRunId     String?           @map("engine_run_id")
+  status          WorkflowRunStatus @default(running)
+  stateJson       Json?             @map("state_json")
+  errorMessage    String?           @map("error_message")
+  startedAt       DateTime          @default(now()) @map("started_at")
+  lastHeartbeatAt DateTime?         @map("last_heartbeat_at")
+  completedAt     DateTime?         @map("completed_at")
+
+  session SchedulingSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([sessionId])
+  @@map("workflow_runs")
+}
+
+model OutboxCommand {
+  id             String       @id @default(cuid())
+  userId         String       @map("user_id")
+  deviceId       String?      @map("device_id")
+  sessionId      String?      @map("session_id")
+  commandType    String       @map("command_type")
+  payloadJson    Json         @map("payload_json")
+  idempotencyKey String       @unique @map("idempotency_key")
+  sequenceNumber BigInt       @default(autoincrement()) @map("sequence_number")
+  status         OutboxStatus @default(pending)
+  expiresAt      DateTime?    @map("expires_at")
+  dispatchedAt   DateTime?    @map("dispatched_at")
+  deliveredAt    DateTime?    @map("delivered_at")
+  acknowledgedAt DateTime?    @map("acknowledged_at")
+  failedAt       DateTime?    @map("failed_at")
+  errorCode      String?      @map("error_code")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device MacDevice? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([status, sequenceNumber])
+  @@index([userId, status])
+  @@map("outbox_commands")
+}
+
+model InboxReceipt {
+  id             String    @id @default(cuid())
+  userId         String    @map("user_id")
+  deviceId       String?   @map("device_id")
+  sessionId      String?   @map("session_id")
+  receiptType    String    @map("receipt_type")
+  payloadJson    Json?     @map("payload_json")
+  idempotencyKey String    @unique @map("idempotency_key")
+  receivedAt     DateTime  @default(now()) @map("received_at")
+  processedAt    DateTime? @map("processed_at")
+
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device MacDevice? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([userId, receivedAt])
+  @@map("inbox_receipts")
+}

@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "soon-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@soon/web", "dev"],
+      "port": 3000,
+      "autoPort": true
+    },
+    {
+      "name": "realtime-gateway",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@soon/realtime-gateway", "dev"],
+      "port": 8787,
+      "autoPort": true
+    }
+  ]
+}

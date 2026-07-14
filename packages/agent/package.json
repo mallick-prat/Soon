@@ -1,0 +1,31 @@
+{
+  "name": "@soon/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.14",
+    "@ai-sdk/openai": "^4.0.13",
+    "ai": "^7.0.26",
+    "chrono-node": "^2.10.0",
+    "date-fns": "^4.4.0",
+    "date-fns-tz": "^3.2.0",
+    "zod": "^4.4.3",
+    "@soon/shared-types": "workspace:*",
+    "@soon/scheduling-engine": "workspace:*",
+    "@soon/style-engine": "workspace:*"
+  }
+}

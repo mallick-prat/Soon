@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+/* design tokens — mirrors /DESIGN.md (replicate-inspired system) */
+@theme {
+  /* surfaces */
+  --color-canvas: #f9f7f3;
+  --color-bone: #f3f0e8;
+  --color-card: #ffffff;
+  --color-surface-dark: #202020;
+  --color-surface-deep: #000000;
+
+  /* text */
+  --color-ink: #202020;
+  --color-body: #3a3a3a;
+  --color-charcoal: #575757;
+  --color-mute: #646464;
+  --color-ash: #8d8d8d;
+  --color-stone: #bbbbbb;
+  --color-on-dark: #fcfcfc;
+
+  /* the single accent */
+  --color-primary: #ea2804;
+  --color-primary-deep: #c01f00;
+  --color-on-primary: #ffffff;
+
+  /* semantic */
+  --color-success: #2b9a66;
+  --color-hairline: rgba(32, 32, 32, 0.12);
+  --color-hairline-strong: #202020;
+  --color-ring-focus: rgba(59, 130, 246, 0.5);
+
+  /* type */
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  /* radii — interactive elements are always rounded-full */
+  --radius-card: 10px;
+  --radius-card-lg: 16px;
+}
+
+/* keep DESIGN.md token names available as raw variables too */
+:root {
+  --color-canvas: #f9f7f3;
+  --color-surface-bone: #f3f0e8;
+  --color-surface-card: #ffffff;
+  --color-ink: #202020;
+  --color-primary: #ea2804;
+  --color-primary-deep: #c01f00;
+  --color-hairline: rgba(32, 32, 32, 0.12);
+  --color-badge-success: #2b9a66;
+  --color-ring-focus: rgba(59, 130, 246, 0.5);
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  /* every interactive element fully rounded per DESIGN.md */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full text-sm font-semibold leading-none transition-colors cursor-pointer select-none;
+    padding: 10px 20px;
+  }
+  .btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--color-ring-focus);
+  }
+  .btn-primary {
+    @apply btn bg-primary text-on-primary;
+  }
+  .btn-primary:hover,
+  .btn-primary:active {
+    background-color: var(--color-primary-deep);
+  }
+  .btn-dark {
+    @apply btn bg-surface-dark text-on-dark;
+  }
+  .btn-dark:hover {
+    background-color: #000000;
+  }
+  .btn-outline {
+    @apply btn bg-card text-ink border border-hairline-strong;
+  }
+  .btn-outline:hover {
+    background-color: var(--color-surface-bone);
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-ink;
+    padding: 8px 14px;
+  }
+  .btn-ghost:hover {
+    background-color: var(--color-surface-bone);
+  }
+  .btn-sm {
+    @apply text-xs;
+    padding: 7px 14px;
+  }
+
+  .card {
+    @apply bg-card border border-hairline;
+    border-radius: var(--radius-card);
+  }
+  .card-lg {
+    @apply bg-card border border-hairline;
+    border-radius: var(--radius-card-lg);
+  }
+  .inset-group {
+    @apply bg-bone;
+    border-radius: var(--radius-card-lg);
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full border border-hairline bg-canvas px-2.5 py-1 text-xs text-ink;
+  }
+  .pill-active {
+    @apply border-hairline-strong bg-surface-dark text-on-dark;
+  }
+  .badge-success {
+    @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs text-on-dark;
+    background-color: var(--color-badge-success);
+  }
+
+  .input {
+    @apply w-full rounded-full border border-hairline bg-card px-5 text-base text-ink;
+    height: 44px;
+  }
+  .input:focus-visible {
+    outline: none;
+    border-color: var(--color-hairline);
+    box-shadow: 0 0 0 3px var(--color-ring-focus);
+  }
+
+  .hairline-divider {
+    border-color: var(--color-hairline);
+  }
+
+  .display {
+    font-family: var(--font-display);
+    line-height: 1;
+    letter-spacing: -0.03em;
+    font-weight: 700;
+  }
+}

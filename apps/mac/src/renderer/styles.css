@@ -1,0 +1,207 @@
+/* soon approval window — tokens from /DESIGN.md (replicate-inspired).
+   quiet utility: warm cream canvas, ink text, ONE hot-orange accent on the
+   single primary action. hairline dividers, no drop shadows, no gradients. */
+
+:root {
+  --color-primary: #ea2804;
+  --color-primary-deep: #c01f00;
+  --color-on-primary: #ffffff;
+  --color-ink: #202020;
+  --color-body: #3a3a3a;
+  --color-charcoal: #575757;
+  --color-mute: #646464;
+  --color-ash: #8d8d8d;
+  --color-canvas: #f9f7f3;
+  --color-surface-bone: #f3f0e8;
+  --color-surface-card: #ffffff;
+  --color-hairline: rgba(32, 32, 32, 0.12);
+  --color-ring-focus: rgba(59, 130, 246, 0.5);
+  --radius-pill: 9999px;
+  --radius-card: 10px;
+  --font-body:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.43;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+#root {
+  height: 100%;
+}
+
+.approval {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 20px 20px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.approval__eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+  color: var(--color-ash);
+}
+
+.approval__context {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.approval__divider {
+  border: none;
+  border-top: 1px solid var(--color-hairline);
+}
+
+.approval__message {
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-card);
+  padding: 14px 16px;
+  color: var(--color-body);
+  font-size: 14px;
+  line-height: 1.5;
+  user-select: text;
+}
+
+.approval__edit {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-card);
+  padding: 14px 16px;
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.approval__edit:focus {
+  outline: 2px solid var(--color-ring-focus);
+  outline-offset: 1px;
+}
+
+.approval__section-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--color-ash);
+  margin-bottom: 6px;
+}
+
+.approval__times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.time-chip {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-charcoal);
+  background: var(--color-surface-bone);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-pill);
+  padding: 5px 12px;
+}
+
+.approval__why {
+  font-size: 13px;
+  color: var(--color-charcoal);
+}
+
+.approval__bundle {
+  font-size: 12px;
+  color: var(--color-mute);
+}
+
+.approval__actions {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.approval__actions-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 9px 16px;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--color-surface-bone);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--color-ring-focus);
+  outline-offset: 1px;
+}
+
+/* the ONE accent: the single primary action. */
+.btn--primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: 14px;
+  padding: 11px 20px;
+  width: 100%;
+}
+
+.btn--primary:hover {
+  background: var(--color-primary-deep);
+  border-color: var(--color-primary-deep);
+}
+
+.btn--quiet {
+  color: var(--color-charcoal);
+  border-color: transparent;
+}
+
+.approval__hint {
+  text-align: center;
+  font-size: 11px;
+  color: var(--color-ash);
+}
+
+.approval__empty {
+  margin: auto;
+  color: var(--color-mute);
+  font-size: 13px;
+}
