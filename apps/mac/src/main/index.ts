@@ -14,7 +14,9 @@ import type { RequestApprovalPayload, ShowNotificationPayload } from "@soon/real
 import { openApprovalWindow } from "../approvals/window.js";
 import type { ApprovalRequest } from "../approvals/types.js";
 import { collectActivationContext } from "../imessage/context.js";
+import { FakeProvider } from "../imessage/fake-provider.js";
 import { PhotonProvider } from "../imessage/photon-provider.js";
+import type { ImessageProvider } from "../imessage/types.js";
 import { openLocalDatabase } from "../local-database/db.js";
 import { CursorStore, PendingActionStore, ReceiptStore, SettingsStore } from "../local-database/stores.js";
 import { showPrivateNotification } from "../notifications/index.js";
@@ -86,7 +88,14 @@ const main = async (): Promise<void> => {
     }
   }
 
-  const provider = new PhotonProvider({ onError: (error) => logDetail("imessage watcher error", error) });
+  // imessage is behind a feature flag: SOON_USE_FAKE_IMESSAGE=1 runs the local
+  // FakeProvider (no Messages / Full Disk Access) so the app can boot and
+  // connect to the gateway for dev/testing.
+  const useFakeImessage = process.env["SOON_USE_FAKE_IMESSAGE"] === "1";
+  const provider: ImessageProvider = useFakeImessage
+    ? new FakeProvider()
+    : new PhotonProvider({ onError: (error) => logDetail("imessage watcher error", error) });
+  if (useFakeImessage) log.warn("using fake imessage provider (SOON_USE_FAKE_IMESSAGE=1)");
   const eventFactory = new DeviceEventFactory({
     // resolved per event: post-enrollment this becomes the server mac_devices.id
     // — the id the gateway authenticates the socket with and routes commands on
