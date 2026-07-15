@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { mintEnrollmentToken } from "@soon/security";
 
 import { deviceSigningSecret } from "@/lib/devices";
-import { getSessionUserId } from "@/lib/session";
+import { getEnrollingUserId } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ const ENROLLMENT_TTL_SECONDS = 10 * 60;
  * (distinct audience).
  */
 export async function POST() {
-  const userId = await getSessionUserId();
+  const userId = await getEnrollingUserId();
   if (userId === null) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
