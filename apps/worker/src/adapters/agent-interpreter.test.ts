@@ -51,6 +51,47 @@ describe("createAgentInterpreter", () => {
     ).rejects.toBeInstanceOf(NoValidDraftError);
   });
 
+  it("retakes once via regenerateAlternative when the first batch fails validation", async () => {
+    const rejected = [{ text: "how about next week?", reason: "references a day outside the proposed slots" }];
+    const draftFn = vi.fn(async () => {
+      throw new NoValidDraftError(rejected);
+    });
+    const regenerateFn = vi.fn(async () => ({ drafts: ["tues at 3?"], rejected: [] }));
+    const interpreter = createAgentInterpreter({
+      llm,
+      draftFn: draftFn as never,
+      regenerateFn: regenerateFn as never,
+    });
+
+    const result = await interpreter.draft({
+      sessionId: "s1",
+      objective: "propose_slots",
+      slots: [slot("a")],
+      styleExamples: [],
+    });
+
+    expect(result.text).toBe("tues at 3?");
+    // the retake sees the failed texts so it produces something different
+    expect(regenerateFn.mock.calls[0]![2]).toEqual(["how about next week?"]);
+  });
+
+  it("propagates the failure when the retake also produces nothing valid", async () => {
+    const draftFn = vi.fn(async () => {
+      throw new NoValidDraftError([{ text: "bad", reason: "invented time" }]);
+    });
+    const regenerateFn = vi.fn(async () => {
+      throw new NoValidDraftError([{ text: "worse", reason: "invented time again" }]);
+    });
+    const interpreter = createAgentInterpreter({
+      llm,
+      draftFn: draftFn as never,
+      regenerateFn: regenerateFn as never,
+    });
+    await expect(
+      interpreter.draft({ sessionId: "s1", objective: "propose_slots", slots: [slot("a")], styleExamples: [] }),
+    ).rejects.toBeInstanceOf(NoValidDraftError);
+  });
+
   it("converts proposed slots to id+label refs for reply interpretation", async () => {
     const parsed: ParsedSchedulingMessage = { intent: "accept_slot", acceptedSlotId: "a", confidence: 0.9, requiresUserJudgment: false };
     const interpretReplyFn = vi.fn(async () => parsed);

@@ -22,6 +22,10 @@ export interface InterpretReplyInput {
   proposedSlots: ProposedSlotRef[];
   lastOutboundText?: string;
   meetingParameters?: MeetingParameters;
+  /** reference instant so relative dates ("next week") resolve to real dates */
+  now?: Date;
+  /** IANA timezone for rendering the reference date */
+  timezone?: string;
 }
 
 const SYSTEM = [
@@ -30,10 +34,28 @@ const SYSTEM = [
   "acceptedSlotId must be one of the listed proposed slot ids, chosen only when the reply unambiguously picks that slot.",
   "never invent times, emails, durations, or locations.",
   "set confidence honestly; when the reply is unclear, use intent \"ambiguous\" and requiresUserJudgment true.",
+  "requiresUserJudgment means a human must step in before anything happens.",
+  "set it true only for sensitive or emotionally loaded replies, new attendees joining, or intent you cannot classify.",
+  "a clear acceptance, a rejection, or a request for different times is routine scheduling the system handles on its own — requiresUserJudgment false.",
 ].join(" ");
 
 function renderReplyPrompt(input: InterpretReplyInput): string {
   const lines: string[] = [];
+  if (input.now !== undefined) {
+    // anchor relative language ("next week", "friday") to the real calendar —
+    // without this the model guesses the year and dates land in the past.
+    const tz = input.timezone ?? "UTC";
+    const day = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(input.now);
+    const weekday = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "long" }).format(
+      input.now,
+    );
+    lines.push(`today is ${weekday.toLowerCase()} ${day}. resolve all relative dates against it.`);
+  }
   if (input.recentMessages.length > 0) {
     lines.push("recent messages (oldest first):");
     for (const m of input.recentMessages) lines.push(`${m.senderType}: ${m.text}`);

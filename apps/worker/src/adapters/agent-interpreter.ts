@@ -12,6 +12,7 @@ import {
   interpretActivationContext,
   interpretReply,
   NoValidDraftError,
+  regenerateAlternative,
   type LlmProvider,
 } from "@soon/agent";
 import type { CandidateSlot, RelationshipType } from "@soon/shared-types";
@@ -31,6 +32,7 @@ export interface AgentInterpreterDeps {
   defaultRelationship?: RelationshipType;
   // injectable agent seams (default to @soon/agent) — tests pass fakes.
   draftFn?: typeof draftMessage;
+  regenerateFn?: typeof regenerateAlternative;
   interpretContextFn?: typeof interpretActivationContext;
   interpretReplyFn?: typeof interpretReply;
 }
@@ -53,6 +55,7 @@ export function createAgentInterpreter(deps: AgentInterpreterDeps): Interpreter 
   const defaultTimezone = deps.defaultTimezone ?? DEFAULT_TIMEZONE;
   const relationship = deps.defaultRelationship ?? "unknown";
   const draftImpl = deps.draftFn ?? draftMessage;
+  const regenerateImpl = deps.regenerateFn ?? regenerateAlternative;
   const interpretContextImpl = deps.interpretContextFn ?? interpretActivationContext;
   const interpretReplyImpl = deps.interpretReplyFn ?? interpretReply;
 
@@ -71,6 +74,9 @@ export function createAgentInterpreter(deps: AgentInterpreterDeps): Interpreter 
           label: formatSlotLabel(slot),
         })),
         lastOutboundText: input.lastOutboundText,
+        // anchor relative dates ("next week") to the real calendar.
+        now: new Date(),
+        timezone: input.proposedSlots[0]?.timezone ?? defaultTimezone,
       }),
 
     draft: async (input) => {
@@ -80,7 +86,7 @@ export function createAgentInterpreter(deps: AgentInterpreterDeps): Interpreter 
         endsAt: slot.endsAt,
         timezone: slot.timezone,
       }));
-      const result = await draftImpl(llm, {
+      const req = {
         objective: input.objective,
         slots,
         relationship,
@@ -89,7 +95,17 @@ export function createAgentInterpreter(deps: AgentInterpreterDeps): Interpreter 
         styleExamples: input.styleExamples,
         userTimezone: input.slots[0]?.timezone ?? defaultTimezone,
         ...(input.priorText !== undefined ? { extraContext: input.priorText } : {}),
-      });
+      };
+      let result;
+      try {
+        result = await draftImpl(llm, req);
+      } catch (error) {
+        if (!(error instanceof NoValidDraftError)) throw error;
+        // the llm is nondeterministic — one batch can fail the time/style
+        // guards wholesale. take one structurally-different retake (same slots,
+        // same validation) before surfacing the failure to the workflow.
+        result = await regenerateImpl(llm, req, error.rejected.map((r) => r.text));
+      }
       const [text, ...alternatives] = result.drafts;
       if (text === undefined) {
         // no candidate survived validation — surface it so the durable

@@ -252,7 +252,13 @@ export function startDeviceEventServer(config: DeviceEventServerConfig): DeviceE
           res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(outcome));
         } catch (error) {
           config.logger?.error(
-            { reason: error instanceof Error ? error.message : "unknown" },
+            {
+              reason: error instanceof Error ? error.message : "unknown",
+              // NoValidDraftError carries per-candidate rejection reasons.
+              ...(error !== null && typeof error === "object" && "rejected" in error
+                ? { rejected: (error as { rejected: unknown }).rejected }
+                : {}),
+            },
             "device event handling failed",
           );
           res.writeHead(500).end();
