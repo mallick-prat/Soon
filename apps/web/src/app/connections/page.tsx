@@ -1,7 +1,17 @@
 import { PairDevice } from "@/components/pair-device";
-import { loadCalendarConnection } from "@/lib/data";
+import { loadCalendarConnection, loadMacDevices } from "@/lib/data";
+import { formatRelative } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
+
+function MacGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-6 w-6 text-ink" fill="none" aria-hidden="true">
+      <rect x="4" y="5" width="16" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M2 19h20" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function CalendarGlyph() {
   return (
@@ -15,7 +25,7 @@ function CalendarGlyph() {
 }
 
 export default async function ConnectionsPage() {
-  const calendar = await loadCalendarConnection();
+  const [calendar, macDevices] = await Promise.all([loadCalendarConnection(), loadMacDevices()]);
 
   return (
     <div>
@@ -31,6 +41,33 @@ export default async function ConnectionsPage() {
             the mac companion is the only thing that reads and sends imessage. pair it once —
             it stays connected and keeps its own credentials.
           </p>
+
+          {macDevices.length > 0 && (
+            <div className="mb-5 flex flex-col gap-2">
+              {macDevices.map((device) => (
+                <div key={device.id} className="inset-group flex items-center gap-3 p-4">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-card border border-hairline bg-card">
+                    <MacGlyph />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-ink">{device.name}</p>
+                    <p className="truncate text-xs text-mute">
+                      {device.lastSeenAtIso !== null
+                        ? `last seen ${formatRelative(device.lastSeenAtIso)}`
+                        : "not seen yet"}
+                      {device.appVersion !== null && ` · v${device.appVersion}`}
+                    </p>
+                  </div>
+                  {device.online ? (
+                    <span className="badge-success ml-auto shrink-0">connected</span>
+                  ) : (
+                    <span className="pill ml-auto shrink-0 capitalize">{device.status}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           <PairDevice />
         </section>
 

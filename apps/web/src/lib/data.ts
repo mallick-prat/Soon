@@ -49,6 +49,45 @@ async function firstUserId(): Promise<string | null> {
   return user?.id ?? null;
 }
 
+export interface MacDeviceView {
+  id: string;
+  name: string;
+  status: string;
+  lastSeenAtIso: string | null;
+  appVersion: string | null;
+  /** active and seen within the last few minutes */
+  online: boolean;
+}
+
+const MAC_ONLINE_MS = 5 * 60 * 1000;
+
+/** the user's paired mac companion devices, most-recently-seen first. */
+export async function loadMacDevices(): Promise<MacDeviceView[]> {
+  if (!isDatabaseConfigured()) return [];
+  try {
+    const userId = await firstUserId();
+    if (userId === null) return [];
+    const devices = await getDb().macDevice.findMany({
+      where: { userId },
+      orderBy: { lastSeenAt: { sort: "desc", nulls: "last" } },
+    });
+    const now = Date.now();
+    return devices.map((d) => ({
+      id: d.id,
+      name: d.deviceName ?? "mac companion",
+      status: d.status,
+      lastSeenAtIso: d.lastSeenAt?.toISOString() ?? null,
+      appVersion: d.appVersion,
+      online:
+        d.status === "active" &&
+        d.lastSeenAt !== null &&
+        now - d.lastSeenAt.getTime() < MAC_ONLINE_MS,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export interface CalendarConnectionView {
   connected: boolean;
   email: string | null;
