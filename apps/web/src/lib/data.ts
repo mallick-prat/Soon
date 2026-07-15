@@ -26,6 +26,7 @@ import type {
   ScheduledEventView,
   UpcomingSessionView,
 } from "./types";
+import { auth } from "@/auth";
 
 export interface LoadResult<T> {
   data: T;
@@ -46,6 +47,34 @@ async function firstUserId(): Promise<string | null> {
   const db = getDb();
   const user = await db.user.findFirst({ orderBy: { createdAt: "asc" } });
   return user?.id ?? null;
+}
+
+export interface CalendarConnectionView {
+  connected: boolean;
+  email: string | null;
+  status: string | null;
+}
+
+/** the current google calendar connection (email + status), if any. */
+export async function loadCalendarConnection(): Promise<CalendarConnectionView> {
+  const disconnected = { connected: false, email: null, status: null };
+  if (!isDatabaseConfigured()) return disconnected;
+  try {
+    const userId = await firstUserId();
+    if (userId === null) return disconnected;
+    const conn = await getDb().googleConnection.findUnique({ where: { userId } });
+    if (conn === null) return disconnected;
+    let email = conn.googleAccountEmail;
+    if (email === null) {
+      // connections stored before we captured the email fall back to the
+      // signed-in google account (the one that authorized the calendar).
+      const session = await auth();
+      email = session?.user?.email ?? null;
+    }
+    return { connected: conn.status === "connected", email, status: conn.status };
+  } catch {
+    return disconnected;
+  }
 }
 
 async function macWarnings(userId: string): Promise<string[]> {

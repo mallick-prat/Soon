@@ -37,6 +37,22 @@ export function buildCalendarAuthUrl(origin: string, state: string): string {
   });
 }
 
+/**
+ * the connected account's email is the id of its primary calendar — available
+ * with the calendarlist scope we already request (no email/profile scope).
+ */
+export async function fetchGoogleAccountEmail(
+  client: ReturnType<typeof calendarOAuthClient>,
+): Promise<string | undefined> {
+  try {
+    const cal = google.calendar({ version: "v3", auth: client });
+    const primary = await cal.calendarList.get({ calendarId: "primary" });
+    return primary.data.id ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface GoogleTokenPayload {
   userId: string;
   accessToken: string;

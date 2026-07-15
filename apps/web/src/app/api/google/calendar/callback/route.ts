@@ -3,6 +3,7 @@ import { getDb, isDatabaseConfigured } from "@soon/database";
 import {
   calendarOAuthClient,
   calendarOAuthConfigured,
+  fetchGoogleAccountEmail,
   saveGoogleConnection,
 } from "@/lib/google";
 
@@ -40,6 +41,8 @@ export async function GET(request: Request) {
         { status: 400 },
       );
     }
+    client.setCredentials(tokens);
+    const googleAccountEmail = await fetchGoogleAccountEmail(client);
     // TODO(integration): resolve the authenticated user from the session.
     // v0 control plane: single-tenant — attach to the first user.
     const db = getDb();
@@ -53,8 +56,9 @@ export async function GET(request: Request) {
       refreshToken: tokens.refresh_token,
       expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
       scopes: tokens.scope?.split(" ") ?? [],
+      ...(googleAccountEmail !== undefined ? { googleAccountEmail } : {}),
     });
-    return NextResponse.redirect(`${url.origin}/preferences?connected=google`);
+    return NextResponse.redirect(`${url.origin}/connections?connected=google`);
   } catch {
     return NextResponse.json({ error: "token exchange failed" }, { status: 502 });
   }
