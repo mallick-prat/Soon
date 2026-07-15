@@ -5,6 +5,24 @@ import { MEETING_FORMAT_LABELS } from "@/lib/copy";
 import { formatDayTime, initialOf } from "@/lib/format";
 import { useAction } from "@/lib/use-action";
 
+/**
+ * a google calendar url that reliably opens the day the meeting is on (in the
+ * event's timezone) — where the soon-created event appears. deep-linking to a
+ * specific event needs google's opaque `eid`, which we don't persist; the day
+ * view is stable and always resolves.
+ */
+function googleCalendarDayUrl(startsAtIso: string | null, timezone: string): string {
+  if (startsAtIso === null) return "https://calendar.google.com/calendar/u/0/r";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(new Date(startsAtIso));
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? "0");
+  return `https://calendar.google.com/calendar/u/0/r/day/${get("year")}/${get("month")}/${get("day")}`;
+}
+
 export function ScheduledList({ events }: { events: ScheduledEventView[] }) {
   if (events.length === 0) {
     return (
@@ -59,10 +77,10 @@ function EventRow({ event }: { event: ScheduledEventView }) {
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {event.calendarEventId && (
+        {(event.startsAtIso || event.calendarEventId) && (
           <a
             className="btn-outline btn-sm"
-            href={`https://calendar.google.com/calendar/u/0/r/eventedit/${encodeURIComponent(event.calendarEventId)}`}
+            href={googleCalendarDayUrl(event.startsAtIso, event.timezone)}
             target="_blank"
             rel="noreferrer"
           >
