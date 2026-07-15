@@ -62,14 +62,15 @@ pnpm --filter @soon/mac make      # → out/make/zip/darwin/arm64/soon-darwin-ar
 
 non-obvious bits (all in `apps/mac/forge.config.ts`):
 
-- **electron is pinned to `^37`, NOT latest.** the local outbox uses `better-sqlite3`
-  (a native addon), and better-sqlite3 ships prebuilt binaries only through electron 37.
-  the `packageAfterCopy` hook fetches that prebuilt via `prebuild-install` for electron's
-  ABI, so **no local Xcode/node-gyp toolchain is needed**. bumping electron past 37 means
-  either waiting for better-sqlite3 to publish newer prebuilds, or fixing local node-gyp
-  (this machine's Command Line Tools have no package receipt, so gyp cannot detect a
-  compiler — `pkgutil --pkg-info=com.apple.pkg.CLTools_Executables` returns "No receipt";
-  reinstall the CLT to fix).
+- **electron is pinned to `^42`, NOT latest.** the local outbox uses `better-sqlite3`
+  (a native addon), and the newest electron its prebuilt binaries cover is 42 (ABI 146;
+  electron 43 is ABI 148, no prebuild yet). the `packageAfterCopy` hook fetches that
+  prebuilt via `prebuild-install` for electron's ABI, so **no local Xcode/node-gyp
+  toolchain is needed**. to bump further: check the better-sqlite3 github release assets
+  for an `electron-v<abi>` matching the target (`node -e "require('node-abi').getAbi('<v>','electron')"`),
+  or fix local node-gyp (this machine's Command Line Tools have no package receipt, so gyp
+  cannot detect a compiler — `pkgutil --pkg-info=com.apple.pkg.CLTools_Executables` returns
+  "No receipt"; reinstall the CLT to fix).
 - the `@electron-forge/plugin-vite` bundles the main process and **excludes all
   `node_modules`**, so native externals declared in `vite.main.config.ts`
   (`better-sqlite3`, `bindings`, `file-uri-to-path`) are copied into the app and unpacked
