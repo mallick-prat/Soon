@@ -4,9 +4,9 @@
     {
       "name": "soon-web",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@soon/web", "dev"],
-      "port": 3000,
-      "autoPort": true
+      "runtimeArgs": ["--filter", "@soon/web", "exec", "next", "dev", "--port", "3100"],
+      "port": 3100,
+      "autoPort": false
     },
     {
       "name": "realtime-gateway",
