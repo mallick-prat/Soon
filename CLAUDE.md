@@ -56,7 +56,8 @@ per-surface dev:
 
 ```sh
 pnpm --filter @soon/mac package   # → apps/mac/out/soon-darwin-arm64/soon.app (clickable)
-pnpm --filter @soon/mac make      # → apps/mac/out/make/zip/darwin/arm64/soon-darwin-arm64-<v>.zip
+pnpm --filter @soon/mac make      # → out/make/zip/darwin/arm64/soon-darwin-arm64-<v>.zip
+                                  #   + out/make/dmg/arm64/soon-<v>-arm64.dmg
 ```
 
 non-obvious bits (all in `apps/mac/forge.config.ts`):
@@ -73,9 +74,11 @@ non-obvious bits (all in `apps/mac/forge.config.ts`):
   `node_modules`**, so native externals declared in `vite.main.config.ts`
   (`better-sqlite3`, `bindings`, `file-uri-to-path`) are copied into the app and unpacked
   from the asar (`asar.unpack: "**/*.node"`) by the same hook.
-- only a **ZIP** maker is enabled. the DMG maker (`MakerDMG`) pulls in `macos-alias`,
-  another native addon that must be compiled locally — re-add it once a working compiler
-  toolchain is present.
+- the **DMG is built by a custom `hdiutil`-backed maker** (`MakerHdiutilDmg` in
+  forge.config.ts), not the stock `MakerDMG` — the stock one pulls in `macos-alias`/
+  `fs-xattr`, native addons that must be compiled locally. `hdiutil` ships with macOS,
+  so both distributables (ZIP + DMG with a drag-to-/Applications layout) need no
+  compiler at all.
 - the asar-integrity fuse is disabled for unsigned local builds (incompatible with unpacked
   native addons); a signed release can re-enable it. notarization stays gated behind
   `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID`.

@@ -1,7 +1,10 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
+import { MakerBase, type MakerOptions } from "@electron-forge/maker-base";
+import type { ForgePlatform } from "@electron-forge/shared-types";
 import { MakerZIP } from "@electron-forge/maker-zip";
 import { FusesPlugin } from "@electron-forge/plugin-fuses";
 import { VitePlugin } from "@electron-forge/plugin-vite";
@@ -65,6 +68,50 @@ function bundleNativeModules(buildPath: string, electronVersion: string, arch: s
   }
 }
 
+/**
+ * DMG maker backed by macOS's own `hdiutil` — no native npm addons. the stock
+ * MakerDMG pulls in macos-alias/fs-xattr, which must be compiled locally and
+ * this machine has no working node-gyp toolchain (CLT receipt missing). the
+ * volume gets the classic drag-to-install layout: soon.app + /Applications link.
+ */
+class MakerHdiutilDmg extends MakerBase<Record<string, never>> {
+  name = "hdiutil-dmg";
+  defaultPlatforms: ForgePlatform[] = ["darwin"];
+
+  isSupportedOnCurrentPlatform(): boolean {
+    return process.platform === "darwin";
+  }
+
+  async make(opts: MakerOptions): Promise<string[]> {
+    const { dir, makeDir, appName, packageJSON, targetArch } = opts;
+    const version = (packageJSON as { version: string }).version;
+    const outPath = path.resolve(makeDir, "dmg", targetArch, `${appName}-${version}-${targetArch}.dmg`);
+    await this.ensureFile(outPath);
+
+    // stage: <tmp>/soon.app + a symlink to /Applications for drag-to-install.
+    const staging = fs.mkdtempSync(path.join(os.tmpdir(), "soon-dmg-"));
+    try {
+      fs.cpSync(path.join(dir, `${appName}.app`), path.join(staging, `${appName}.app`), {
+        recursive: true,
+        verbatimSymlinks: true,
+      });
+      fs.symlinkSync("/Applications", path.join(staging, "Applications"));
+
+      const result = spawnSync(
+        "hdiutil",
+        ["create", "-volname", appName, "-srcfolder", staging, "-ov", "-format", "UDZO", outPath],
+        { stdio: "inherit" },
+      );
+      if (result.status !== 0) {
+        throw new Error(`hdiutil create failed with exit code ${result.status ?? "unknown"}`);
+      }
+    } finally {
+      fs.rmSync(staging, { recursive: true, force: true });
+    }
+    return [outPath];
+  }
+}
+
 const config: ForgeConfig = {
   packagerConfig: {
     name: "soon",
@@ -92,10 +139,9 @@ const config: ForgeConfig = {
   // native modules are handled by the packageAfterCopy hook via prebuilt
   // binaries; disable forge's own node-gyp rebuild so it never runs.
   rebuildConfig: { onlyModules: [] },
-  // ZIP is the distributable: it contains soon.app and needs no native tooling.
-  // a .dmg maker (MakerDMG) pulls in macos-alias, a native addon that must be
-  // compiled locally — re-add it once a working Xcode/CLT toolchain is present.
-  makers: [new MakerZIP({}, ["darwin"])],
+  // both distributables need no native npm tooling: ZIP via maker-zip, DMG via
+  // the hdiutil-backed maker above (the stock MakerDMG needs a local compiler).
+  makers: [new MakerZIP({}, ["darwin"]), new MakerHdiutilDmg()],
   hooks: {
     // runs after @electron/packager copies the app but before asar packaging.
     packageAfterCopy: async (_forgeConfig, buildPath, electronVersion, _platform, arch) => {
