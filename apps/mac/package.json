@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.renderer.json",
     "test": "vitest run --passWithNoTests",
     "start": "electron-forge start",
+    "agent": "tsx --env-file-if-exists=../../.env src/agent.ts",
     "package": "electron-forge package",
     "make": "electron-forge make"
   },
