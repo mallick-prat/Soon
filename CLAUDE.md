@@ -45,6 +45,46 @@ per-surface dev:
   only resolves utilities, not other component classes. see `apps/web/src/app/globals.css`.
 - native deps (`better-sqlite3`, `esbuild`, `electron`) build fine; pnpm 10 sandboxes
   install scripts, so `sharp`/`prisma` scripts show as "ignored" — expected, not a bug.
+  `electron` is listed in root `pnpm.onlyBuiltDependencies` so its postinstall runs and
+  actually downloads the Electron binary (without it, packaging fails with no `dist/`).
+- **`node-linker=hoisted` (root `.npmrc`) is required and intentional.** electron-forge's
+  packager cannot traverse pnpm's default isolated (symlinked) `node_modules`, so the mac
+  app won't package without it. it changes only the on-disk layout, not the committed
+  lockfile. do not remove it.
+
+## packaging the mac app (electron)
+
+```sh
+pnpm --filter @soon/mac package   # → apps/mac/out/soon-darwin-arm64/soon.app (clickable)
+pnpm --filter @soon/mac make      # → apps/mac/out/make/zip/darwin/arm64/soon-darwin-arm64-<v>.zip
+```
+
+non-obvious bits (all in `apps/mac/forge.config.ts`):
+
+- **electron is pinned to `^37`, NOT latest.** the local outbox uses `better-sqlite3`
+  (a native addon), and better-sqlite3 ships prebuilt binaries only through electron 37.
+  the `packageAfterCopy` hook fetches that prebuilt via `prebuild-install` for electron's
+  ABI, so **no local Xcode/node-gyp toolchain is needed**. bumping electron past 37 means
+  either waiting for better-sqlite3 to publish newer prebuilds, or fixing local node-gyp
+  (this machine's Command Line Tools have no package receipt, so gyp cannot detect a
+  compiler — `pkgutil --pkg-info=com.apple.pkg.CLTools_Executables` returns "No receipt";
+  reinstall the CLT to fix).
+- the `@electron-forge/plugin-vite` bundles the main process and **excludes all
+  `node_modules`**, so native externals declared in `vite.main.config.ts`
+  (`better-sqlite3`, `bindings`, `file-uri-to-path`) are copied into the app and unpacked
+  from the asar (`asar.unpack: "**/*.node"`) by the same hook.
+- only a **ZIP** maker is enabled. the DMG maker (`MakerDMG`) pulls in `macos-alias`,
+  another native addon that must be compiled locally — re-add it once a working compiler
+  toolchain is present.
+- the asar-integrity fuse is disabled for unsigned local builds (incompatible with unpacked
+  native addons); a signed release can re-enable it. notarization stays gated behind
+  `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID`.
+
+**running a packaged dev build against localhost:** a built `.app` has no shell env, so it
+reads `~/Library/Application Support/soon/soon.config.json` (see `apps/mac/src/main/config.ts`)
+— drop in `{ "gatewayUrl": "http://localhost:8787", "dashboardUrl": "http://localhost:3100",
+"useFakeImessage": true }` and it points at the local stack and pairs from the dashboard.
+env vars (`SOON_GATEWAY_URL`, `SOON_USE_FAKE_IMESSAGE`, …) still override the file.
 
 ## architecture
 

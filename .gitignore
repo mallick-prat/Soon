@@ -12,4 +12,5 @@ coverage/
 *.log
 prisma/*.db
 apps/mac/.vite/
+apps/mac/**/.vite/
 apps/mac/out/

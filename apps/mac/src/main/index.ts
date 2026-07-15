@@ -27,6 +27,7 @@ import { DeviceEnroller } from "../enrollment/enroller.js";
 import { createSettingsEnrollmentStore } from "../enrollment/store.js";
 import { registerConfiguredGlobalShortcut, unregisterAllGlobalShortcuts } from "../shortcuts/index.js";
 import { initUpdater } from "../updater/index.js";
+import { loadRuntimeConfig } from "./config.js";
 import { TriggerEngine } from "./engine.js";
 import { createTray, type TrayController } from "./tray.js";
 
@@ -35,15 +36,19 @@ const logDetail = (message: string, detail?: unknown): void => {
   log.warn({ detail: detail instanceof Error ? serializeError(detail) : detail }, message);
 };
 
-const GATEWAY_URL = process.env["SOON_GATEWAY_URL"] ?? "https://gateway.soon.local";
-const DASHBOARD_URL = process.env["SOON_DASHBOARD_URL"] ?? "https://app.soon.local";
-
 const main = async (): Promise<void> => {
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return;
   }
   await app.whenReady();
+
+  // resolved from env → userData/soon.config.json → prod defaults, so a
+  // double-clicked dev build can be pointed at localhost without a rebuild.
+  const config = loadRuntimeConfig({ userDataDir: app.getPath("userData") });
+  const GATEWAY_URL = config.gatewayUrl;
+  const DASHBOARD_URL = config.dashboardUrl;
+  log.info({ gatewayUrl: GATEWAY_URL, dashboardUrl: DASHBOARD_URL }, "runtime config loaded");
 
   // menu-bar only.
   app.dock?.hide();
@@ -77,7 +82,7 @@ const main = async (): Promise<void> => {
     },
     appVersion: app.getVersion(),
   });
-  const bootEnrollmentCode = process.env["SOON_ENROLLMENT_CODE"];
+  const bootEnrollmentCode = config.enrollmentCode;
   if (bootEnrollmentCode !== undefined && bootEnrollmentCode !== "" && !enroller.isEnrolled()) {
     try {
       const { serverDeviceId } = await enroller.register(bootEnrollmentCode);
@@ -90,7 +95,7 @@ const main = async (): Promise<void> => {
   // imessage is behind a feature flag: SOON_USE_FAKE_IMESSAGE=1 runs the local
   // FakeProvider (no Messages / Full Disk Access) so the app can boot and
   // connect to the gateway for dev/testing.
-  const useFakeImessage = process.env["SOON_USE_FAKE_IMESSAGE"] === "1";
+  const useFakeImessage = config.useFakeImessage;
   let provider: ImessageProvider;
   if (useFakeImessage) {
     provider = new FakeProvider();
@@ -167,7 +172,9 @@ const main = async (): Promise<void> => {
     if (draft === undefined) return;
     openApprovalWindow({
       payload: draft,
-      preloadPath: path.join(import.meta.dirname, "../preload/preload.js"),
+      // forge-vite emits the preload bundle alongside this main bundle in
+      // .vite/build/, so it resolves relative to this file's own directory.
+      preloadPath: path.join(import.meta.dirname, "preload.js"),
       onDecision: (decision) => {
         pendingDraft = undefined;
         tray?.setDraftCount(0);
@@ -205,8 +212,7 @@ const main = async (): Promise<void> => {
   realtime = new RealtimeClient({
     url: GATEWAY_URL,
     getToken: async () => {
-      const envToken = process.env["SOON_DEVICE_TOKEN"];
-      if (envToken !== undefined && envToken !== "") return envToken;
+      if (config.deviceToken !== undefined && config.deviceToken !== "") return config.deviceToken;
       // refreshes via device-key proof when the token nears expiry.
       return enroller.getAccessToken();
     },
@@ -278,7 +284,7 @@ const main = async (): Promise<void> => {
   });
 
   // optional, explicitly configured global binding (never ⌘return).
-  registerConfiguredGlobalShortcut(process.env["SOON_GLOBAL_SHORTCUT"], reviewDraft);
+  registerConfiguredGlobalShortcut(config.globalShortcut, reviewDraft);
 
   // sleep/wake: reconnect the socket and catch the cursor up.
   powerMonitor.on("resume", () => {
@@ -299,8 +305,7 @@ const main = async (): Promise<void> => {
   // only connect to the gateway once we have a device identity — an
   // unenrolled mac has no valid token and would just fail auth in a loop.
   const canConnect =
-    enroller.isEnrolled() ||
-    (process.env["SOON_DEVICE_TOKEN"] !== undefined && process.env["SOON_DEVICE_TOKEN"] !== "");
+    enroller.isEnrolled() || (config.deviceToken !== undefined && config.deviceToken !== "");
   if (canConnect) {
     realtime.connect();
   } else {
