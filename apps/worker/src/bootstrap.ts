@@ -7,10 +7,15 @@
  * calendar-backed availability, @soon/agent interpreter) is a separate slice
  * still to be built — see the build-state notes.
  */
+import http from "node:http";
+
 import { getDb } from "@soon/database";
 import type { Logger } from "@soon/observability";
+import type { DeviceEvent } from "@soon/realtime-protocol";
 
 import { createAgentInterpreter, llmFromEnv } from "./adapters/agent-interpreter.js";
+import { handleDeviceEvent } from "./device-event-handler.js";
+import { getComposition } from "./composition.js";
 import {
   createCalendarAvailability,
   createDbCalendarContextResolver,
@@ -186,4 +191,80 @@ export function configureWorker(overrides: WorkerCompositionOverrides = {}): voi
     retention: createPrismaRetention(),
     ...(overrides.logger !== undefined ? { logger: overrides.logger } : {}),
   });
+}
+
+// --------------------------------------------------------------------------
+// device-event ingress — the autonomous entry point. the gateway forwards
+// authenticated device events (context_collected after a 📅) here over an
+// internal HTTP hop; each one drives handleDeviceEvent against the configured
+// composition, which runs a real proposal round and enqueues request_approval.
+// --------------------------------------------------------------------------
+
+export interface DeviceEventServerConfig {
+  port: number;
+  internalToken: string;
+  logger?: Logger;
+}
+
+export interface DeviceEventServerHandle {
+  stop(): Promise<void>;
+}
+
+const DEVICE_EVENTS_PATH = "/internal/device-events";
+const MAX_EVENT_BODY_BYTES = 256 * 1024;
+
+/**
+ * start the internal HTTP server that receives forwarded device events. auth is
+ * a bearer token shared with the gateway; the body is a signed-and-verified
+ * DeviceEvent (the gateway verifies the envelope before forwarding). handling is
+ * awaited so the caller gets the real outcome, but a failure never crashes the
+ * process — it is logged and answered with 500.
+ */
+export function startDeviceEventServer(config: DeviceEventServerConfig): DeviceEventServerHandle {
+  const expected = `Bearer ${config.internalToken}`;
+  const server = http.createServer((req, res) => {
+    if (req.method !== "POST" || req.url !== DEVICE_EVENTS_PATH) {
+      res.writeHead(404).end();
+      return;
+    }
+    if (config.internalToken === "" || req.headers.authorization !== expected) {
+      res.writeHead(401).end();
+      return;
+    }
+    let body = "";
+    let tooLarge = false;
+    req.on("data", (chunk: Buffer) => {
+      body += chunk;
+      if (body.length > MAX_EVENT_BODY_BYTES) {
+        tooLarge = true;
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      if (tooLarge) {
+        res.writeHead(413).end();
+        return;
+      }
+      void (async () => {
+        try {
+          const event = JSON.parse(body) as DeviceEvent;
+          const outcome = await handleDeviceEvent(event, getComposition());
+          res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(outcome));
+        } catch (error) {
+          config.logger?.error(
+            { reason: error instanceof Error ? error.message : "unknown" },
+            "device event handling failed",
+          );
+          res.writeHead(500).end();
+        }
+      })();
+    });
+  });
+  server.listen(config.port);
+
+  return {
+    stop() {
+      return new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
 }

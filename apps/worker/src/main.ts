@@ -13,7 +13,13 @@ import { closeDb } from "@soon/database";
 import { createLogger, type Logger } from "@soon/observability";
 
 import type { OutboxDrainerConfig } from "./adapters/outbox-drainer.js";
-import { loadDrainerConfigFromEnv, startOutboxDrainer } from "./bootstrap.js";
+import {
+  configureWorker,
+  loadDrainerConfigFromEnv,
+  startDeviceEventServer,
+  startOutboxDrainer,
+  type DeviceEventServerHandle,
+} from "./bootstrap.js";
 
 export interface DrainerService {
   stop(): Promise<void>;
@@ -53,12 +59,32 @@ export function startDrainerService(options: StartDrainerServiceOptions = {}): D
   };
 }
 
-/** process entry: start the drainer and shut down cleanly on SIGINT/SIGTERM. */
-export function runDrainerProcess(): void {
-  const service = startDrainerService();
+/**
+ * process entry: start the outbox drainer, and — when the scheduling env is
+ * present (LLM_API_KEY) — also configure the composition root and expose the
+ * device-event ingress server so forwarded 📅 context drives real proposals.
+ * shuts down cleanly on SIGINT/SIGTERM.
+ */
+export function runWorkerProcess(): void {
+  const logger = createLogger({ name: "soon-worker" });
+  const drainer = startDrainerService({ logger });
+
+  let events: DeviceEventServerHandle | undefined;
+  if (process.env["LLM_API_KEY"] !== undefined && process.env["LLM_API_KEY"] !== "") {
+    configureWorker({ logger });
+    const port = Number(process.env["WORKER_EVENTS_PORT"] ?? "8788");
+    events = startDeviceEventServer({
+      port,
+      internalToken: process.env["INTERNAL_API_TOKEN"] ?? "",
+      logger,
+    });
+    logger.info({ port }, "device-event ingress listening");
+  } else {
+    logger.warn("LLM_API_KEY unset — running drainer only (no autonomous scheduling)");
+  }
+
   const shutdown = (signal: NodeJS.Signals): void => {
-    void service
-      .stop()
+    void Promise.allSettled([events?.stop(), drainer.stop()])
       .then(() => process.exit(0))
       .catch(() => process.exit(1));
     // reference the signal so the intent is clear in logs/traces
@@ -70,5 +96,5 @@ export function runDrainerProcess(): void {
 
 // run only when executed directly (never when imported by a test).
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  runDrainerProcess();
+  runWorkerProcess();
 }

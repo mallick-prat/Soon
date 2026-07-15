@@ -1,6 +1,7 @@
 import { createLogger } from "@soon/observability";
 import { loadConfig } from "./config.js";
 import { buildApp } from "./app.js";
+import { createForwardingEventSink } from "./forwarding-sink.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -8,7 +9,21 @@ async function main(): Promise<void> {
     name: "realtime-gateway",
     ...(config.LOG_LEVEL !== undefined ? { level: config.LOG_LEVEL } : {}),
   });
-  const gateway = await buildApp({ config, logger });
+  // when a worker ingress URL is configured, forward validated device events to
+  // it so 📅 context drives autonomous scheduling; otherwise events land in the
+  // default in-memory sink.
+  const sink =
+    config.WORKER_EVENTS_URL !== undefined
+      ? createForwardingEventSink({
+          url: config.WORKER_EVENTS_URL,
+          internalToken: config.INTERNAL_API_TOKEN,
+          logger,
+        })
+      : undefined;
+  if (sink !== undefined) {
+    logger.info({ workerEventsUrl: config.WORKER_EVENTS_URL }, "forwarding device events to worker");
+  }
+  const gateway = await buildApp({ config, logger, ...(sink !== undefined ? { sink } : {}) });
   await gateway.app.listen({ port: config.PORT, host: "0.0.0.0" });
   logger.info({ port: config.PORT }, "realtime gateway listening");
 

@@ -14,6 +14,12 @@ const gatewayEnvSchema = z
     REALTIME_JWT_PUBLIC_KEY: z.string().optional(),
     /** hs256 shared-secret fallback for device jwts */
     DEVICE_JWT_SECRET: z.string().min(16).optional(),
+    /**
+     * worker device-event ingress URL. when set, validated device events are
+     * forwarded here (bearer INTERNAL_API_TOKEN) so the worker can drive
+     * autonomous scheduling. unset → events stay in the in-memory sink.
+     */
+    WORKER_EVENTS_URL: z.string().url().optional(),
   })
   .refine((env) => env.REALTIME_JWT_PUBLIC_KEY !== undefined || env.DEVICE_JWT_SECRET !== undefined, {
     message: "either REALTIME_JWT_PUBLIC_KEY or DEVICE_JWT_SECRET is required",
